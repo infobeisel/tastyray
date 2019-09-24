@@ -9,7 +9,7 @@
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
-int const pixelCountX = 64;
+int const pixelCountX = 8;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -27,7 +27,7 @@ void initWindow() {
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac, from imgui example
 	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
-	window = glfwCreateWindow(pixelCountX, pixelCountX, "TastyRay", NULL, NULL);
+	window = glfwCreateWindow(256, 256, "TastyRay", NULL, NULL);
 	
 	glfwMakeContextCurrent(window);
 	MYREQUIRE(window);
@@ -72,8 +72,8 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 5;
-	float const sufficientDist = 1.0f;
+	int const maxMarchSteps = 4;
+	float const sufficientDist = 0.1f;
 	auto camT = context.findTransformByName("Camera");
 	glm::mat4 V;
 	glm::mat4 P;
@@ -90,30 +90,38 @@ int main(void) {
 
 	context.updateDirty();
 
+	//initialize ray buffer
+	std::vector< RayMarchInstance> rays;
+	rays.resize(pixelCountX * pixelCountX);
+
 	while (!glfwWindowShouldClose(window))
 	{
 		W = cameraCorrectionTransform->calculateWorldMatrix(context);
 		forward = glm::vec3(W * glm::vec4(0, 0, -1, 1));
 		TastyQuad::Camera::constructPerspViewProjection(fov, near, far, aspectRatio, glm::vec3(W[3]), glm::vec3(W[3]) + forward, V, P);
-		//initialize ray buffer
-		std::vector< RayMarchInstance> rays;
-		rays.resize(pixelCountX * pixelCountX);
+		
+
+		std::cout << std::endl << "rays:" ;
+
 		for (int i = 0; i < pixelCountX; i++) {
+			std::cout << std::endl;
 			for (int j = 0; j < pixelCountX; j++) {
 				rays[i*pixelCountX + j].minDist = far;
 				rays[i*pixelCountX + j].coveredDist = 0.0f;
 				float viewPlaneWorldWidth = (glm::tan(fov / 2.0f) * near) * 2.0f;
-				glm::vec2 normalizedScreenCoord = glm::vec2(static_cast<float>(j) * static_cast<float>(pixelCountX),
-					static_cast<float>(i) * static_cast<float>(pixelCountX));
+				glm::vec2 normalizedScreenCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(pixelCountX),
+					static_cast<float>(i) / static_cast<float>(pixelCountX));
 				rays[i*pixelCountX + j].position = glm::vec3(-0.5f * viewPlaneWorldWidth * aspectRatio + normalizedScreenCoord.x * viewPlaneWorldWidth * aspectRatio,
 					-0.5f * viewPlaneWorldWidth * aspectRatio + normalizedScreenCoord.y * viewPlaneWorldWidth,
 					near);
 				rays[i*pixelCountX + j].dir = glm::normalize(rays[i*pixelCountX + j].position);
 				rays[i*pixelCountX + j].position = glm::vec3(W * glm::vec4(rays[i*pixelCountX + j].position, 1));
+				rays[i*pixelCountX + j].dir.z = -rays[i*pixelCountX + j].dir.z;
 				rays[i*pixelCountX + j].dir = glm::mat3(W) * rays[i*pixelCountX + j].dir;
+				std::cout << std::to_string(rays[i*pixelCountX + j].dir.z) << "  ";
 			}
 		}
-		//march 10 times
+		//march n times
 		for (int iteration = 0; iteration < maxMarchSteps ; iteration++) {
 			//visit the scene
 			context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
@@ -126,7 +134,6 @@ int main(void) {
 							for (int x = 0; x < pixelCountX; x++) {
 								if (rays[y*pixelCountX + x].coveredDist < far) { //only march rays that are still interesting
 									//information per ray, local variables
-									float minDist = rays[y*pixelCountX + x].minDist;
 									glm::vec3 position = rays[y*pixelCountX + x].position;
 									glm::vec3 a, b, c, A, B, C, D, H, ctr; //triangle points, edges and new base vectors
 									float r,area2, al,bl,cl,ls, dist; //transformed triangle point coordinates, squared lengths of base vectors
@@ -147,9 +154,8 @@ int main(void) {
 										r = area2 / ls;
 										ctr = glm::mat3(a, b, c) * glm::vec3(al, bl, cl) / ls;
 										//sphere dist
-										dist = (ctr - glm::vec3(W[3])).length() - r;
-
-										if (dist <= minDist) { //found new result
+										dist = glm::distance(ctr,  position) - r;
+										if (dist < rays[y*pixelCountX + x].minDist) { //found new result
 											rays[y*pixelCountX + x].uvA = glm::vec2(uvs[indices[i + 0] * 4 + 0], uvs[indices[i + 0] * 4 + 1]);
 											rays[y*pixelCountX + x].uvB = glm::vec2(uvs[indices[i + 1] * 4 + 0], uvs[indices[i + 1] * 4 + 1]);
 											rays[y*pixelCountX + x].uvC = glm::vec2(uvs[indices[i + 2] * 4 + 0], uvs[indices[i + 2] * 4 + 1]);
@@ -158,7 +164,6 @@ int main(void) {
 											rays[y*pixelCountX + x].minDist = dist;
 											rays[y*pixelCountX + x].incircleCtr = ctr;
 											rays[y*pixelCountX + x].incircleRadius = r;
-											minDist = dist;
 										}
 									}
 								}
@@ -180,16 +185,21 @@ int main(void) {
 				}
 			}
 		}
+
 		//paint phase
 		newTex->modify([&](unsigned int & edgeLength, std::vector<unsigned char> & bytes) {
 			//for each ray
+			std::cout << std::endl << "dists:" ;
 			for (int y = 0; y < pixelCountX ; y++) {
+				std::cout << std::endl;
 				for (int x = 0; x < pixelCountX; x++) {
 					glm::vec4 color;
 					float minDist = rays[y*pixelCountX + x].minDist;
+					std::cout << std::to_string(minDist) << "  ";
 					//found a close triangle ?
 					if (minDist < sufficientDist) {
-						/*pd = glm::clamp(rays[y*pixelCountX + x].pd / glm::sqrt(rays[y*pixelCountX + x].Ds), 0.0f, 1.0f);
+					
+				/*pd = glm::clamp(rays[y*pixelCountX + x].pd / glm::sqrt(rays[y*pixelCountX + x].Ds), 0.0f, 1.0f);
 						pc = glm::clamp(rays[y*pixelCountX + x].pc / glm::sqrt(rays[y*pixelCountX + x].Cs), 0.0f, 1.0f);
 						pb = glm::clamp(rays[y*pixelCountX + x].pb / glm::sqrt(rays[y*pixelCountX + x].Bs), 0.0f, 1.0f);
 						glm::vec2 uv = (rays[y*pixelCountX + x].uvB * pb + rays[y*pixelCountX + x].uvA * (1.0f - pb)) * (1.0f - pc) + rays[y*pixelCountX + x].uvC * pc;
@@ -204,6 +214,7 @@ int main(void) {
 						}
 						else
 							color = glm::vec4(1);
+						color = glm::vec4(1);
 					}
 					else {
 						color = glm::vec4(0);
@@ -233,7 +244,7 @@ int main(void) {
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		glReadBuffer(GL_COLOR_ATTACHMENT0);
 		glBlitFramebuffer(0, 0, pixelCountX, pixelCountX,
-			0, 0, pixelCountX, pixelCountX, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			0, 0, 256, 256, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
