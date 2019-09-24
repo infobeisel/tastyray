@@ -375,5 +375,5 @@ ASALocalRun/
 # MFractors (Xamarin productivity tool) working folder 
 .mfractor/
 
-TastyRay/Data/
-TastyRay/shaders/
+**/Data
+**/ubuntuBuild/

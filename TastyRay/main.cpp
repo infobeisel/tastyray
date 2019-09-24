@@ -5,6 +5,7 @@
 #include "RenderFunctions.h"
 #include "util.h"
 #include "Camera.h"
+#include <tuple>
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
@@ -21,16 +22,13 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 void initWindow() {
 	int success = glfwInit();
 	MYREQUIRE(success);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac, from imgui example
 	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 	window = glfwCreateWindow(pixelCountX, pixelCountX, "TastyRay", NULL, NULL);
-	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	if (glfwRawMouseMotionSupported())
-		glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+	
 	glfwMakeContextCurrent(window);
 	MYREQUIRE(window);
 	GLenum err = glewInit();
@@ -55,11 +53,12 @@ struct RayMarchInstance {
 int main(void) {
 	initWindow();
 	//load data
-	TastyQuad::Context context(std::string("./Data/TinyForest/assets.db"));
+	TastyQuad::GPULessContext context(std::string("./Data/TinyForest/assets.db"));
+	TastyQuad::GLTextureLoader glTexLoader;
 	auto arena = context.load("monkeyLightCam");
 	//create render texture
 	auto newTex = context.getTextureLoader().createEmptyTexture(pixelCountX);
-	context.getGLTextureLoader().loadToGl(*newTex);
+	glTexLoader.loadToGl(*newTex);
 	GLuint fbo = 0;
 	glGenFramebuffers(1, &fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -220,7 +219,8 @@ int main(void) {
 			}
 		});
 
-		context.getGLTextureLoader().reloadToGl(*newTex);
+		glTexLoader.reloadToGl(*newTex);
+
 
 		//Switching between menu mode and game mode
 		int state = glfwGetKey(window, GLFW_KEY_LEFT_ALT);
