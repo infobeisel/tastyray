@@ -100,7 +100,12 @@ int main(void) {
 		forward = glm::vec3(W * glm::vec4(0, 0, -1, 1));
 		TastyQuad::Camera::constructPerspViewProjection(fov, near, far, aspectRatio, glm::vec3(W[3]), glm::vec3(W[3]) + forward, V, P);
 		
-
+		cameraCorrectionTransform->modify([&](auto & pos, auto & rot, auto & scale) {
+			pos = glm::vec3(0);
+			rot = correction;
+			scale = glm::vec3(1);
+		});
+		
 		std::cout << std::endl << "rays:" ;
 
 		for (int i = 0; i < pixelCountX; i++) {

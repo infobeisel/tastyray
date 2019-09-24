@@ -377,3 +377,5 @@ ASALocalRun/
 
 **/Data
 **/ubuntuBuild/
+
+/TastyRay/cmake-build-debug/
