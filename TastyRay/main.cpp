@@ -9,7 +9,7 @@
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
-int const pixelCountX = 1;
+int const pixelCountX = 20;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -71,8 +71,8 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 4;
-	float const sufficientDist = 0.000001f;
+	int const maxMarchSteps = 100;
+	float const sufficientDist = 6.0f;
 	auto camT = context.findTransformByName("Camera");
 	glm::mat4 V;
 	glm::mat4 P;
@@ -93,21 +93,24 @@ int main(void) {
 	std::vector< RayMarchInstance> rays;
 	rays.resize(pixelCountX * pixelCountX);
 
+	
+	double frameTimePoint = glfwGetTime();
 	while (!glfwWindowShouldClose(window))
 	{
+		float delta =   static_cast<float>(glfwGetTime() - frameTimePoint);
 		W = cameraCorrectionTransform->calculateWorldMatrix(context);
 		forward = glm::vec3(W * glm::vec4(0, 0, -1, 1));
 		TastyQuad::Camera::constructPerspViewProjection(fov, near, far, aspectRatio, glm::vec3(W[3]), glm::vec3(W[3]) + forward, V, P);
 		
 		cameraCorrectionTransform->modify([&](auto & pos, auto & rot, auto & scale) {
 		    if(glfwGetKey(window,GLFW_KEY_W) == GLFW_PRESS)
-		        pos += rot * forward * 0.001f;
+		        pos += rot * forward * 0.5f * delta;
 		    else if (glfwGetKey(window,GLFW_KEY_S) == GLFW_PRESS)
-                pos -= rot * forward * 0.001f;
+                pos -= rot * forward * 0.5f * delta;
 		});
 		
 		//std::cout << std::endl << "rays:" ;
-
+		frameTimePoint = glfwGetTime();
 		for (int i = 0; i < pixelCountX; i++) {
 			//std::cout << std::endl;
 			for (int j = 0; j < pixelCountX; j++) {
@@ -128,74 +131,79 @@ int main(void) {
 		}
 		//march n times
 		for (int iteration = 0; iteration < maxMarchSteps ; iteration++) {
-			//visit the scene
-			context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
-				if (mesh != nullptr) {
-					//visit the mesh
-					mesh->modify([&](std::pair<glm::vec3, glm::vec3> & boundingBox, std::vector<float> & vertices,
-						std::vector<float> & normals, std::vector<float> & uvs, std::vector<unsigned int>& indices) {
-						//for each ray
-						for (int y = 0; y < pixelCountX; y++) {
-							for (int x = 0; x < pixelCountX; x++) {
-								if (rays[y*pixelCountX + x].coveredDist < far) { //only march rays that are still interesting
-									//information per ray, local variables
-									glm::vec3 position = rays[y*pixelCountX + x].position;
-									glm::vec3 a, b, c, A, B, C, D, H, ctr; //triangle points, edges and new base vectors
-									float r,area2, al,bl,cl,ls, dist; //transformed triangle point coordinates, squared lengths of base vectors
-									dist = far;
-									glm::mat4 worldT = t->calculateWorldMatrix(context);
-									glm::mat4 invWT = t->calculateWorldInverse(context);
-									position = glm::vec3(invWT * glm::vec4(position,1)); //position relative to given transform
-									/*for (int i = 0; i < indices.size(); i = i + 3) { //
-										a = glm::vec3(vertices[indices[i + 0] * 4 + 0], vertices[indices[i + 0] * 4 + 1], vertices[indices[i + 0] * 4 + 2]);
-										b = glm::vec3(vertices[indices[i + 1] * 4 + 0], vertices[indices[i + 1] * 4 + 1], vertices[indices[i + 1] * 4 + 2]);
-										c = glm::vec3(vertices[indices[i + 2] * 4 + 0], vertices[indices[i + 2] * 4 + 1], vertices[indices[i + 2] * 4 + 2]);
-										a = glm::vec3(worldT * glm::vec4(a, 1));
-										b = glm::vec3(worldT * glm::vec4(b, 1));
-										c = glm::vec3(worldT * glm::vec4(c, 1));
-										area2 = glm::cross(b - a, c - a).length();
-										al = a.length();
-										bl = b.length();
-										cl = c.length();
-										ls = al + bl + cl;
-										r = area2 / ls;
-										ctr = glm::mat3(a, b, c) * glm::vec3(al, bl, cl) / ls;
-										//sphere dist
-										dist = glm::distance(ctr,  position) - r;
-									 */
-
-									glm::vec3 extends =  0.5f * (boundingBox.second - boundingBox.first);
-									extends = glm::abs(extends);
-									dist = glm::length(glm::max(glm::vec3(0.0f),glm::abs(position) - extends));
-									    //dist = glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.first, 1)), position);
-									    //dist = glm::min(dist,
-									      //      glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.second, 1)), position));
-									std::cout << "pos (" << std::to_string(position.x) << ","
-                                            << std::to_string(position.y) << ","
-                                            << std::to_string(position.z) << ")"
-                                            << " extends (" << std::to_string(extends.x) << ","
-                                                            << std::to_string(extends.y) << ","
-                                                            << std::to_string(extends.z) << ")" <<
-                                                            "dist " << std::to_string(dist) << std::endl;
-                                    if (dist < rays[y*pixelCountX + x].minDist) { //found new result
-											//rays[y*pixelCountX + x].uvA = glm::vec2(uvs[indices[i + 0] * 4 + 0], uvs[indices[i + 0] * 4 + 1]);
-											//rays[y*pixelCountX + x].uvB = glm::vec2(uvs[indices[i + 1] * 4 + 0], uvs[indices[i + 1] * 4 + 1]);
-											//rays[y*pixelCountX + x].uvC = glm::vec2(uvs[indices[i + 2] * 4 + 0], uvs[indices[i + 2] * 4 + 1]);
-											//rays[y*pixelCountX + x].resMat = mat;
-											//rays[y*pixelCountX + x].resAlbedo = albedo;
-											rays[y*pixelCountX + x].minDist = dist;
-											//rays[y*pixelCountX + x].incircleCtr = ctr;
-											//rays[y*pixelCountX + x].incircleRadius = r;
-										}
-									//}
+			
+			//for each ray
+			for (int y = 0; y < pixelCountX; y++) {
+				for (int x = 0; x < pixelCountX; x++) {
+					//visit the scene
+					context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
+					if (mesh != nullptr) {
+						
+						//visit the mesh
+						mesh->modify([&](std::pair<glm::vec3, glm::vec3> & boundingBox, std::vector<float> & vertices,
+							std::vector<float> & normals, std::vector<float> & uvs, std::vector<unsigned int>& indices) {
+							
+							if (rays[y*pixelCountX + x].coveredDist < far && vertices.size() > 24) { //only march rays that are still interesting
+								//information per ray, local variables
+								glm::vec3 position = rays[y*pixelCountX + x].position;
+								glm::vec3 a, b, c, A, B, C, D, H, ctr; //triangle points, edges and new base vectors
+								float r,area2, al,bl,cl,ls, dist; //transformed triangle point coordinates, squared lengths of base vectors
+								dist = far;
+								glm::mat4 worldT = t->calculateWorldMatrix(context);
+								glm::mat4 invWT = t->calculateWorldInverse(context);
+								glm::vec4 pos4 = invWT * glm::vec4(position,1); //position relative to given transform
+								position = glm::vec3(pos4) / pos4.w;
+								/*for (int i = 0; i < indices.size(); i = i + 3) { //
+									a = glm::vec3(vertices[indices[i + 0] * 4 + 0], vertices[indices[i + 0] * 4 + 1], vertices[indices[i + 0] * 4 + 2]);
+									b = glm::vec3(vertices[indices[i + 1] * 4 + 0], vertices[indices[i + 1] * 4 + 1], vertices[indices[i + 1] * 4 + 2]);
+									c = glm::vec3(vertices[indices[i + 2] * 4 + 0], vertices[indices[i + 2] * 4 + 1], vertices[indices[i + 2] * 4 + 2]);
+									a = glm::vec3(worldT * glm::vec4(a, 1));
+									b = glm::vec3(worldT * glm::vec4(b, 1));
+									c = glm::vec3(worldT * glm::vec4(c, 1));
+									area2 = glm::cross(b - a, c - a).length();
+									al = a.length();
+									bl = b.length();
+									cl = c.length();
+									ls = al + bl + cl;
+									r = area2 / ls;
+									ctr = glm::mat3(a, b, c) * glm::vec3(al, bl, cl) / ls;
+									//sphere dist
+									dist = glm::distance(ctr,  position) - r;
+								*/  
+								
+								
+								glm::vec3 extends = glm::abs( 0.5f * (boundingBox.second - boundingBox.first));
+								
+								dist = glm::length(glm::max(glm::vec3(0),glm::abs(position) - extends));
+									//dist = glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.first, 1)), position);
+									//dist = glm::min(dist,
+									//      glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.second, 1)), position));
+								/*std::cout << "pos (" << std::to_string(position.x) << ","
+										<< std::to_string(position.y) << ","
+										<< std::to_string(position.z) << ")"
+										<< " extends (" << std::to_string(extends.x) << ","
+														<< std::to_string(extends.y) << ","
+														<< std::to_string(extends.z) << ")" <<
+														"dist " << std::to_string(dist) << std::endl;*/
+								if (dist < rays[y*pixelCountX + x].minDist) { //found new result
+										//rays[y*pixelCountX + x].uvA = glm::vec2(uvs[indices[i + 0] * 4 + 0], uvs[indices[i + 0] * 4 + 1]);
+										//rays[y*pixelCountX + x].uvB = glm::vec2(uvs[indices[i + 1] * 4 + 0], uvs[indices[i + 1] * 4 + 1]);
+										//rays[y*pixelCountX + x].uvC = glm::vec2(uvs[indices[i + 2] * 4 + 0], uvs[indices[i + 2] * 4 + 1]);
+										//rays[y*pixelCountX + x].resMat = mat;
+										//rays[y*pixelCountX + x].resAlbedo = albedo;
+										rays[y*pixelCountX + x].minDist = dist;
+										//rays[y*pixelCountX + x].incircleCtr = ctr;
+										//rays[y*pixelCountX + x].incircleRadius = r;
 								}
 							}
-						}
+						});
+					}
 					});
 				}
+			}
 
-			});
-			std::cout << "march phase " << std::to_string(iteration) << std::endl;
+			
+			//std::cout << "march phase " << std::to_string(iteration) << std::endl;
 			//for each ray
 			for (int y = 0; y < pixelCountX ; y++) {
 				for (int x = 0; x < pixelCountX; x++) {
@@ -211,13 +219,13 @@ int main(void) {
 		//paint phase
 		newTex->modify([&](unsigned int & edgeLength, std::vector<unsigned char> & bytes) {
 			//for each ray
-			std::cout << std::endl << "dists:" ;
+			std::cout << std::endl << "paint! dists:" ;
 			for (int y = 0; y < pixelCountX ; y++) {
-				std::cout << std::endl;
+				//std::cout << std::endl;
 				for (int x = 0; x < pixelCountX; x++) {
 					glm::vec4 color;
 					float minDist = rays[y*pixelCountX + x].minDist;
-					std::cout << std::to_string(minDist) << "  ";
+					//std::cout << std::to_string(minDist) << "  ";
 					//found a close triangle ?
 					if (minDist < sufficientDist) {
 					
