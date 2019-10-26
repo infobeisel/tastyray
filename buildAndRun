@@ -1,0 +1,5 @@
+cmake -S TastyRay -B build
+cd build
+make
+cd ../TastyRay/
+../build/TastyRay

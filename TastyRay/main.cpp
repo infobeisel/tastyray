@@ -9,7 +9,7 @@
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
-int const pixelCountX = 8;
+int const pixelCountX = 1;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -25,8 +25,7 @@ void initWindow() {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);            // Required on Mac, from imgui example
-	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+ 	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 	window = glfwCreateWindow(256, 256, "TastyRay", NULL, NULL);
 	
 	glfwMakeContextCurrent(window);
@@ -73,7 +72,7 @@ int main(void) {
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
 	int const maxMarchSteps = 4;
-	float const sufficientDist = 0.1f;
+	float const sufficientDist = 0.000001f;
 	auto camT = context.findTransformByName("Camera");
 	glm::mat4 V;
 	glm::mat4 P;
@@ -101,15 +100,16 @@ int main(void) {
 		TastyQuad::Camera::constructPerspViewProjection(fov, near, far, aspectRatio, glm::vec3(W[3]), glm::vec3(W[3]) + forward, V, P);
 		
 		cameraCorrectionTransform->modify([&](auto & pos, auto & rot, auto & scale) {
-			pos = glm::vec3(0);
-			rot = correction;
-			scale = glm::vec3(1);
+		    if(glfwGetKey(window,GLFW_KEY_W) == GLFW_PRESS)
+		        pos += rot * forward * 0.001f;
+		    else if (glfwGetKey(window,GLFW_KEY_S) == GLFW_PRESS)
+                pos -= rot * forward * 0.001f;
 		});
 		
-		std::cout << std::endl << "rays:" ;
+		//std::cout << std::endl << "rays:" ;
 
 		for (int i = 0; i < pixelCountX; i++) {
-			std::cout << std::endl;
+			//std::cout << std::endl;
 			for (int j = 0; j < pixelCountX; j++) {
 				rays[i*pixelCountX + j].minDist = far;
 				rays[i*pixelCountX + j].coveredDist = 0.0f;
@@ -123,7 +123,7 @@ int main(void) {
 				rays[i*pixelCountX + j].position = glm::vec3(W * glm::vec4(rays[i*pixelCountX + j].position, 1));
 				rays[i*pixelCountX + j].dir.z = -rays[i*pixelCountX + j].dir.z;
 				rays[i*pixelCountX + j].dir = glm::mat3(W) * rays[i*pixelCountX + j].dir;
-				std::cout << std::to_string(rays[i*pixelCountX + j].dir.z) << "  ";
+				//std::cout << std::to_string(rays[i*pixelCountX + j].dir.z) << "  ";
 			}
 		}
 		//march n times
@@ -144,7 +144,9 @@ int main(void) {
 									float r,area2, al,bl,cl,ls, dist; //transformed triangle point coordinates, squared lengths of base vectors
 									dist = far;
 									glm::mat4 worldT = t->calculateWorldMatrix(context);
-									for (int i = 0; i < indices.size(); i = i + 3) { //
+									glm::mat4 invWT = t->calculateWorldInverse(context);
+									position = glm::vec3(invWT * glm::vec4(position,1)); //position relative to given transform
+									/*for (int i = 0; i < indices.size(); i = i + 3) { //
 										a = glm::vec3(vertices[indices[i + 0] * 4 + 0], vertices[indices[i + 0] * 4 + 1], vertices[indices[i + 0] * 4 + 2]);
 										b = glm::vec3(vertices[indices[i + 1] * 4 + 0], vertices[indices[i + 1] * 4 + 1], vertices[indices[i + 1] * 4 + 2]);
 										c = glm::vec3(vertices[indices[i + 2] * 4 + 0], vertices[indices[i + 2] * 4 + 1], vertices[indices[i + 2] * 4 + 2]);
@@ -160,17 +162,32 @@ int main(void) {
 										ctr = glm::mat3(a, b, c) * glm::vec3(al, bl, cl) / ls;
 										//sphere dist
 										dist = glm::distance(ctr,  position) - r;
-										if (dist < rays[y*pixelCountX + x].minDist) { //found new result
-											rays[y*pixelCountX + x].uvA = glm::vec2(uvs[indices[i + 0] * 4 + 0], uvs[indices[i + 0] * 4 + 1]);
-											rays[y*pixelCountX + x].uvB = glm::vec2(uvs[indices[i + 1] * 4 + 0], uvs[indices[i + 1] * 4 + 1]);
-											rays[y*pixelCountX + x].uvC = glm::vec2(uvs[indices[i + 2] * 4 + 0], uvs[indices[i + 2] * 4 + 1]);
-											rays[y*pixelCountX + x].resMat = mat;
-											rays[y*pixelCountX + x].resAlbedo = albedo;
+									 */
+
+									glm::vec3 extends =  0.5f * (boundingBox.second - boundingBox.first);
+									extends = glm::abs(extends);
+									dist = glm::length(glm::max(glm::vec3(0.0f),glm::abs(position) - extends));
+									    //dist = glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.first, 1)), position);
+									    //dist = glm::min(dist,
+									      //      glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.second, 1)), position));
+									std::cout << "pos (" << std::to_string(position.x) << ","
+                                            << std::to_string(position.y) << ","
+                                            << std::to_string(position.z) << ")"
+                                            << " extends (" << std::to_string(extends.x) << ","
+                                                            << std::to_string(extends.y) << ","
+                                                            << std::to_string(extends.z) << ")" <<
+                                                            "dist " << std::to_string(dist) << std::endl;
+                                    if (dist < rays[y*pixelCountX + x].minDist) { //found new result
+											//rays[y*pixelCountX + x].uvA = glm::vec2(uvs[indices[i + 0] * 4 + 0], uvs[indices[i + 0] * 4 + 1]);
+											//rays[y*pixelCountX + x].uvB = glm::vec2(uvs[indices[i + 1] * 4 + 0], uvs[indices[i + 1] * 4 + 1]);
+											//rays[y*pixelCountX + x].uvC = glm::vec2(uvs[indices[i + 2] * 4 + 0], uvs[indices[i + 2] * 4 + 1]);
+											//rays[y*pixelCountX + x].resMat = mat;
+											//rays[y*pixelCountX + x].resAlbedo = albedo;
 											rays[y*pixelCountX + x].minDist = dist;
-											rays[y*pixelCountX + x].incircleCtr = ctr;
-											rays[y*pixelCountX + x].incircleRadius = r;
+											//rays[y*pixelCountX + x].incircleCtr = ctr;
+											//rays[y*pixelCountX + x].incircleRadius = r;
 										}
-									}
+									//}
 								}
 							}
 						}

@@ -32,4 +32,6 @@ GL
 )
 
 
+target_compile_options(TastyRay PUBLIC -O3)
+
 
