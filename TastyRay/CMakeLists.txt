@@ -22,7 +22,7 @@ main.cpp
 )
 
 target_link_libraries (TastyRay 
-			"${PROJECT_SOURCE_DIR}/../../tastyquad/ubuntuBuild/libTastyQuad.a"
+			"${PROJECT_SOURCE_DIR}/../../tastyquad/build/libTastyQuad.a"
 						${SQLite3_LIBRARY}
 GL					
 			GLEW
