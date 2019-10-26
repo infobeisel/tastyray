@@ -6,10 +6,12 @@
 #include "util.h"
 #include "Camera.h"
 #include <tuple>
+#define GLM_ENABLE_EXPERIMENTAL
+#include "glm/gtx/transform.hpp"
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
-int const pixelCountX = 20;
+int const pixelCountX = 32;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -71,8 +73,8 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 100;
-	float const sufficientDist = 6.0f;
+	int const maxMarchSteps = 10;
+	float const sufficientDist = 1.0f;
 	auto camT = context.findTransformByName("Camera");
 	glm::mat4 V;
 	glm::mat4 P;
@@ -99,15 +101,28 @@ int main(void) {
 	{
 		float delta =   static_cast<float>(glfwGetTime() - frameTimePoint);
 		W = cameraCorrectionTransform->calculateWorldMatrix(context);
+		glm::mat4 iW = camT->calculateWorldInverse(context);
 		forward = glm::vec3(W * glm::vec4(0, 0, -1, 1));
 		TastyQuad::Camera::constructPerspViewProjection(fov, near, far, aspectRatio, glm::vec3(W[3]), glm::vec3(W[3]) + forward, V, P);
 		
-		cameraCorrectionTransform->modify([&](auto & pos, auto & rot, auto & scale) {
+		camT->modify([&](auto & pos, auto & rot, auto & scale) {
 		    if(glfwGetKey(window,GLFW_KEY_W) == GLFW_PRESS)
-		        pos += rot * forward * 0.5f * delta;
+		        pos.z -=  50.0f * delta;
 		    else if (glfwGetKey(window,GLFW_KEY_S) == GLFW_PRESS)
-                pos -= rot * forward * 0.5f * delta;
+                pos.z +=  50.0f * delta;
+			if(glfwGetKey(window,GLFW_KEY_A) == GLFW_PRESS)
+		        pos.x -=  50.0f * delta;
+		    else if (glfwGetKey(window,GLFW_KEY_D) == GLFW_PRESS)
+                pos.x +=  50.0f * delta;
+				
+			if(glfwGetKey(window,GLFW_KEY_E) == GLFW_PRESS)  {
+				rot = rot * glm::quat_cast(  glm::rotate(glm::pi<float>() * delta, glm::vec3(0.0f,0.0f,1.0f )));
+			}
+		    else if (glfwGetKey(window,GLFW_KEY_Q) == GLFW_PRESS){
+				rot = rot * glm::quat_cast( glm::rotate(-glm::pi<float>() * delta, glm::vec3(0.0f,0.0f,1.0f )));
+			}    
 		});
+		//std::cout << "cam pos " <<
 		
 		//std::cout << std::endl << "rays:" ;
 		frameTimePoint = glfwGetTime();
@@ -150,9 +165,6 @@ int main(void) {
 								float r,area2, al,bl,cl,ls, dist; //transformed triangle point coordinates, squared lengths of base vectors
 								dist = far;
 								glm::mat4 worldT = t->calculateWorldMatrix(context);
-								glm::mat4 invWT = t->calculateWorldInverse(context);
-								glm::vec4 pos4 = invWT * glm::vec4(position,1); //position relative to given transform
-								position = glm::vec3(pos4) / pos4.w;
 								/*for (int i = 0; i < indices.size(); i = i + 3) { //
 									a = glm::vec3(vertices[indices[i + 0] * 4 + 0], vertices[indices[i + 0] * 4 + 1], vertices[indices[i + 0] * 4 + 2]);
 									b = glm::vec3(vertices[indices[i + 1] * 4 + 0], vertices[indices[i + 1] * 4 + 1], vertices[indices[i + 1] * 4 + 2]);
@@ -173,8 +185,9 @@ int main(void) {
 								
 								
 								glm::vec3 extends = glm::abs( 0.5f * (boundingBox.second - boundingBox.first));
-								
-								dist = glm::length(glm::max(glm::vec3(0),glm::abs(position) - extends));
+								extends = glm::mat3(worldT) * extends;
+								dist = glm::max(0.0f, glm::length(position - glm::vec3(worldT[3])) - length(extends));
+
 									//dist = glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.first, 1)), position);
 									//dist = glm::min(dist,
 									//      glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.second, 1)), position));
@@ -189,8 +202,8 @@ int main(void) {
 										//rays[y*pixelCountX + x].uvA = glm::vec2(uvs[indices[i + 0] * 4 + 0], uvs[indices[i + 0] * 4 + 1]);
 										//rays[y*pixelCountX + x].uvB = glm::vec2(uvs[indices[i + 1] * 4 + 0], uvs[indices[i + 1] * 4 + 1]);
 										//rays[y*pixelCountX + x].uvC = glm::vec2(uvs[indices[i + 2] * 4 + 0], uvs[indices[i + 2] * 4 + 1]);
-										//rays[y*pixelCountX + x].resMat = mat;
-										//rays[y*pixelCountX + x].resAlbedo = albedo;
+										rays[y*pixelCountX + x].resMat = mat;
+										rays[y*pixelCountX + x].resAlbedo = albedo;
 										rays[y*pixelCountX + x].minDist = dist;
 										//rays[y*pixelCountX + x].incircleCtr = ctr;
 										//rays[y*pixelCountX + x].incircleRadius = r;
