@@ -8,10 +8,11 @@
 #include <tuple>
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/transform.hpp"
+#include <omp.h>
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
-int const pixelCountX = 32;
+int const pixelCountX = 64;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -28,7 +29,7 @@ void initWindow() {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
  	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
-	window = glfwCreateWindow(256, 256, "TastyRay", NULL, NULL);
+	window = glfwCreateWindow(1024, 1024, "TastyRay", NULL, NULL);
 	
 	glfwMakeContextCurrent(window);
 	MYREQUIRE(window);
@@ -74,12 +75,9 @@ int main(void) {
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
 	int const maxMarchSteps = 10;
-	float const sufficientDist = 1.0f;
+	float const sufficientDist = 0.0000000001f;
 	auto camT = context.findTransformByName("Camera");
-	glm::mat4 V;
-	glm::mat4 P;
-	glm::mat4 W = camT->calculateWorldMatrix(context);
-	glm::vec3 forward;
+	
 
 	glm::quat correction = glm::rotate(glm::quat(1, 0, 0, 0), -glm::pi<float>() / 2.0f, glm::vec3(1.0f, 0.0f, 0.0f));
 	auto cameraCorrectionTransform = context.createTransformation(camT.get());
@@ -89,43 +87,94 @@ int main(void) {
 		scale = glm::vec3(1);
 	});
 
+	glm::mat4 V;
+	glm::mat4 P;
+	glm::mat4 W = camT->calculateWorldMatrix(context);
+	glm::vec3 forward;
+	
 	context.updateDirty();
+
+	//ugly cam
+	double xpos, ypos;
+	glfwGetCursorPos(window, &xpos, &ypos);
+	double oldCursorPosX = xpos;
+	double oldCursorPosY = ypos;
+	float cameraXAxisAngle = 0.0f;
+	float cameraYAxisAngle = 0.0f;
+	glm::mat4 newRx;
+	glm::mat4 newRy;
+	glm::mat4 id = glm::mat4(1);
+	//----------
 
 	//initialize ray buffer
 	std::vector< RayMarchInstance> rays;
 	rays.resize(pixelCountX * pixelCountX);
 
-	
+
 	double frameTimePoint = glfwGetTime();
 	while (!glfwWindowShouldClose(window))
 	{
+
+		//ugly cam
+		glfwGetCursorPos(window, &xpos, &ypos);
+		
+		//total camera rotation angles
+		float newXAxisAngle = cameraXAxisAngle - 0.01f * (float)(ypos - oldCursorPosY);
+		cameraYAxisAngle = cameraYAxisAngle - 0.01f * (float)(xpos - oldCursorPosX);
+		//check for "salto" and > 360\B0
+		//need to include the camera correction in checks
+		cameraXAxisAngle = newXAxisAngle > 0.5f * glm::pi<float>() + (glm::pi<float>() / 2.0f) ? cameraXAxisAngle :
+			(newXAxisAngle < -glm::pi<float>() * 0.5f + (glm::pi<float>() / 2.0f) ? cameraXAxisAngle : newXAxisAngle);
+		cameraYAxisAngle = cameraYAxisAngle > glm::pi<float>() ? cameraYAxisAngle - (glm::pi<float>() * 2.0f) :
+			(cameraYAxisAngle < -glm::pi<float>() ? cameraYAxisAngle + (glm::pi<float>() * 2.0f) : cameraYAxisAngle);
+		//total camera rotation
+		newRx = glm::rotate(id, cameraXAxisAngle, glm::vec3(1, 0, 0));
+		newRy = glm::rotate(id, cameraYAxisAngle, glm::vec3(0, 1, 0));
+
+		//calculate movement in local camera coordinates 
+
+		auto cameraPosDelta = glm::vec4(0, 0, 0, 1);
+		int state = glfwGetKey(window, GLFW_KEY_SPACE);
+		int stateShift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT);
+		float speed = state == GLFW_PRESS && stateShift == GLFW_PRESS ? 0.04f : (state == GLFW_PRESS ? 10.0f : 1.0f);
+		state = glfwGetKey(window, GLFW_KEY_W);
+		if (state == GLFW_PRESS) 
+			cameraPosDelta += glm::vec4(0, 0, speed  * -1.0f, 0);
+		state = glfwGetKey(window, GLFW_KEY_A);
+		if (state == GLFW_PRESS)
+			cameraPosDelta += glm::vec4(speed  * -1.0f, 0, 0, 0);
+		state = glfwGetKey(window, GLFW_KEY_D);
+		if (state == GLFW_PRESS)
+			cameraPosDelta += glm::vec4(speed  * 1.0f, 0, 0, 0);
+		state = glfwGetKey(window, GLFW_KEY_S);
+		if (state == GLFW_PRESS)
+			cameraPosDelta += glm::vec4(0, 0, speed  * 1.0f, 0);
+		state = glfwGetKey(window, GLFW_KEY_F);
+
+		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
+				rot = glm::quat_cast(newRy * newRx);
+				pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+			});
+
+		oldCursorPosX = xpos;
+		oldCursorPosY = ypos;
+		//----------
+
+
 		float delta =   static_cast<float>(glfwGetTime() - frameTimePoint);
 		W = cameraCorrectionTransform->calculateWorldMatrix(context);
-		glm::mat4 iW = camT->calculateWorldInverse(context);
+		glm::mat4 iW = cameraCorrectionTransform->calculateWorldInverse(context);
 		forward = glm::vec3(W * glm::vec4(0, 0, -1, 1));
 		TastyQuad::Camera::constructPerspViewProjection(fov, near, far, aspectRatio, glm::vec3(W[3]), glm::vec3(W[3]) + forward, V, P);
 		
-		camT->modify([&](auto & pos, auto & rot, auto & scale) {
-		    if(glfwGetKey(window,GLFW_KEY_W) == GLFW_PRESS)
-		        pos.z -=  50.0f * delta;
-		    else if (glfwGetKey(window,GLFW_KEY_S) == GLFW_PRESS)
-                pos.z +=  50.0f * delta;
-			if(glfwGetKey(window,GLFW_KEY_A) == GLFW_PRESS)
-		        pos.x -=  50.0f * delta;
-		    else if (glfwGetKey(window,GLFW_KEY_D) == GLFW_PRESS)
-                pos.x +=  50.0f * delta;
-				
-			if(glfwGetKey(window,GLFW_KEY_E) == GLFW_PRESS)  {
-				rot = rot * glm::quat_cast(  glm::rotate(glm::pi<float>() * delta, glm::vec3(0.0f,0.0f,1.0f )));
-			}
-		    else if (glfwGetKey(window,GLFW_KEY_Q) == GLFW_PRESS){
-				rot = rot * glm::quat_cast( glm::rotate(-glm::pi<float>() * delta, glm::vec3(0.0f,0.0f,1.0f )));
-			}    
-		});
 		//std::cout << "cam pos " <<
-		
+		#pragma omp parallel
+		{
+
+		//std::cout << "num threads" <<  omp_get_num_threads() << std::endl;
 		//std::cout << std::endl << "rays:" ;
 		frameTimePoint = glfwGetTime();
+		#pragma omp for collapse(2)
 		for (int i = 0; i < pixelCountX; i++) {
 			//std::cout << std::endl;
 			for (int j = 0; j < pixelCountX; j++) {
@@ -146,7 +195,7 @@ int main(void) {
 		}
 		//march n times
 		for (int iteration = 0; iteration < maxMarchSteps ; iteration++) {
-			
+			#pragma omp for collapse(2)
 			//for each ray
 			for (int y = 0; y < pixelCountX; y++) {
 				for (int x = 0; x < pixelCountX; x++) {
@@ -218,6 +267,7 @@ int main(void) {
 			
 			//std::cout << "march phase " << std::to_string(iteration) << std::endl;
 			//for each ray
+			#pragma omp for collapse(2)
 			for (int y = 0; y < pixelCountX ; y++) {
 				for (int x = 0; x < pixelCountX; x++) {
 					//march!
@@ -229,10 +279,14 @@ int main(void) {
 			}
 		}
 
+		
+
 		//paint phase
-		newTex->modify([&](unsigned int & edgeLength, std::vector<unsigned char> & bytes) {
+		newTex->modify([&] (unsigned int & edgeLength, std::vector<unsigned char> & bytes) {
 			//for each ray
-			std::cout << std::endl << "paint! dists:" ;
+			#pragma omp for collapse(2)
+
+			//std::cout << std::endl << "paint! dists:" ;
 			for (int y = 0; y < pixelCountX ; y++) {
 				//std::cout << std::endl;
 				for (int x = 0; x < pixelCountX; x++) {
@@ -273,21 +327,17 @@ int main(void) {
 			}
 		});
 
+		}
+
 		glTexLoader.reloadToGl(*newTex);
 
-
-		//Switching between menu mode and game mode
-		int state = glfwGetKey(window, GLFW_KEY_LEFT_ALT);
-		if (state == GLFW_PRESS) {
-			
-		}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		glReadBuffer(GL_COLOR_ATTACHMENT0);
 		glBlitFramebuffer(0, 0, pixelCountX, pixelCountX,
-			0, 0, 256, 256, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			0, 0, 1024, 1024, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
