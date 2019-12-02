@@ -6,13 +6,16 @@
 #include "util.h"
 #include "Camera.h"
 #include <tuple>
+#include "SHBasis.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include "glm/gtx/transform.hpp"
 #include <omp.h>
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
-int const pixelCountX = 64;
+int pixelCountMin = 16;
+int pixelCountMax = 128;
+int pixelCountX = 16;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -43,6 +46,7 @@ void initWindow() {
 
 struct RayMarchInstance {
 	float minDist;
+	bool sh = false;
 	float coveredDist;
 	glm::vec2 uvA, uvB, uvC;
 	TastyQuad::Material * resMat = nullptr;
@@ -57,9 +61,9 @@ int main(void) {
 	//load data
 	TastyQuad::GPULessContext context(std::string("./Data/TinyForest/assets.db"));
 	TastyQuad::GLTextureLoader glTexLoader;
-	auto arena = context.load("monkeyLightCam");
+	auto arena = context.load("monkey");
 	//create render texture
-	auto newTex = context.getTextureLoader().createEmptyTexture(pixelCountX);
+	auto newTex = context.getTextureLoader().createEmptyTexture(pixelCountMax);
 	glTexLoader.loadToGl(*newTex);
 	GLuint fbo = 0;
 	glGenFramebuffers(1, &fbo);
@@ -74,8 +78,10 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 10;
+	int const maxMarchSteps = 20;
 	float const sufficientDist = 0.0000000001f;
+	float const constStepSize = 0.001f;
+	float const stepDist= 0.05f;
 	auto camT = context.findTransformByName("Camera");
 	
 
@@ -109,6 +115,10 @@ int main(void) {
 	//initialize ray buffer
 	std::vector< RayMarchInstance> rays;
 	rays.resize(pixelCountX * pixelCountX);
+
+	//sh "buffer"
+	std::vector<float> shEvals;
+	shEvals.resize(36, 0.0f);
 
 
 	double frameTimePoint = glfwGetTime();
@@ -152,16 +162,28 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-				rot = glm::quat_cast(newRy * newRx);
-				pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
-			});
-
+	///		rot = glm::quat_cast(newRy * newRx);
+	//		pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+		});
+		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
+			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
 		oldCursorPosX = xpos;
 		oldCursorPosY = ypos;
 		//----------
 
 
 		float delta =   static_cast<float>(glfwGetTime() - frameTimePoint);
+		if (delta > 0.1f && glm::length(movementDelta) < 0.01) {
+			if(pixelCountX < pixelCountMax)
+				pixelCountX *= 2;
+			rays.resize(pixelCountX * pixelCountX);
+			frameTimePoint = glfwGetTime();
+		}
+		else if (glm::length(movementDelta) > 0.01) {
+			pixelCountX = pixelCountMin;
+			frameTimePoint = glfwGetTime();
+		}
+
 		W = cameraCorrectionTransform->calculateWorldMatrix(context);
 		glm::mat4 iW = cameraCorrectionTransform->calculateWorldInverse(context);
 		forward = glm::vec3(W * glm::vec4(0, 0, -1, 1));
@@ -173,12 +195,12 @@ int main(void) {
 
 		//std::cout << "num threads" <<  omp_get_num_threads() << std::endl;
 		//std::cout << std::endl << "rays:" ;
-		frameTimePoint = glfwGetTime();
 		#pragma omp for collapse(2)
 		for (int i = 0; i < pixelCountX; i++) {
 			//std::cout << std::endl;
 			for (int j = 0; j < pixelCountX; j++) {
 				rays[i*pixelCountX + j].minDist = far;
+				rays[i*pixelCountX + j].sh = false;
 				rays[i*pixelCountX + j].coveredDist = 0.0f;
 				float viewPlaneWorldWidth = (glm::tan(fov / 2.0f) * near) * 2.0f;
 				glm::vec2 normalizedScreenCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(pixelCountX),
@@ -201,66 +223,82 @@ int main(void) {
 				for (int x = 0; x < pixelCountX; x++) {
 					//visit the scene
 					context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
-					if (mesh != nullptr) {
-						
-						//visit the mesh
-						mesh->modify([&](std::pair<glm::vec3, glm::vec3> & boundingBox, std::vector<float> & vertices,
-							std::vector<float> & normals, std::vector<float> & uvs, std::vector<unsigned int>& indices) {
-							
-							if (rays[y*pixelCountX + x].coveredDist < far && vertices.size() > 24) { //only march rays that are still interesting
-								//information per ray, local variables
-								glm::vec3 position = rays[y*pixelCountX + x].position;
-								glm::vec3 a, b, c, A, B, C, D, H, ctr; //triangle points, edges and new base vectors
-								float r,area2, al,bl,cl,ls, dist; //transformed triangle point coordinates, squared lengths of base vectors
-								dist = far;
-								glm::mat4 worldT = t->calculateWorldMatrix(context);
-								/*for (int i = 0; i < indices.size(); i = i + 3) { //
-									a = glm::vec3(vertices[indices[i + 0] * 4 + 0], vertices[indices[i + 0] * 4 + 1], vertices[indices[i + 0] * 4 + 2]);
-									b = glm::vec3(vertices[indices[i + 1] * 4 + 0], vertices[indices[i + 1] * 4 + 1], vertices[indices[i + 1] * 4 + 2]);
-									c = glm::vec3(vertices[indices[i + 2] * 4 + 0], vertices[indices[i + 2] * 4 + 1], vertices[indices[i + 2] * 4 + 2]);
-									a = glm::vec3(worldT * glm::vec4(a, 1));
-									b = glm::vec3(worldT * glm::vec4(b, 1));
-									c = glm::vec3(worldT * glm::vec4(c, 1));
-									area2 = glm::cross(b - a, c - a).length();
-									al = a.length();
-									bl = b.length();
-									cl = c.length();
-									ls = al + bl + cl;
-									r = area2 / ls;
-									ctr = glm::mat3(a, b, c) * glm::vec3(al, bl, cl) / ls;
-									//sphere dist
-									dist = glm::distance(ctr,  position) - r;
-								*/  
-								
-								
-								glm::vec3 extends = glm::abs( 0.5f * (boundingBox.second - boundingBox.first));
-								extends = glm::mat3(worldT) * extends;
-								dist = glm::max(0.0f, glm::length(position - glm::vec3(worldT[3])) - length(extends));
+						if (rays[y*pixelCountX + x].coveredDist < far) { //only march rays that are still interesting
 
-									//dist = glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.first, 1)), position);
-									//dist = glm::min(dist,
-									//      glm::distance(glm::vec3(worldT * glm::vec4(boundingBox.second, 1)), position));
-								/*std::cout << "pos (" << std::to_string(position.x) << ","
-										<< std::to_string(position.y) << ","
-										<< std::to_string(position.z) << ")"
-										<< " extends (" << std::to_string(extends.x) << ","
-														<< std::to_string(extends.y) << ","
-														<< std::to_string(extends.z) << ")" <<
-														"dist " << std::to_string(dist) << std::endl;*/
-								if (dist < rays[y*pixelCountX + x].minDist) { //found new result
-										//rays[y*pixelCountX + x].uvA = glm::vec2(uvs[indices[i + 0] * 4 + 0], uvs[indices[i + 0] * 4 + 1]);
-										//rays[y*pixelCountX + x].uvB = glm::vec2(uvs[indices[i + 1] * 4 + 0], uvs[indices[i + 1] * 4 + 1]);
-										//rays[y*pixelCountX + x].uvC = glm::vec2(uvs[indices[i + 2] * 4 + 0], uvs[indices[i + 2] * 4 + 1]);
-										rays[y*pixelCountX + x].resMat = mat;
-										rays[y*pixelCountX + x].resAlbedo = albedo;
-										rays[y*pixelCountX + x].minDist = dist;
-										//rays[y*pixelCountX + x].incircleCtr = ctr;
-										//rays[y*pixelCountX + x].incircleRadius = r;
-								}
+							//information per ray, local variables
+							glm::vec3 position = rays[y*pixelCountX + x].position;
+							float dist = far;
+							glm::mat4 worldT = t->calculateWorldMatrix(context);
+
+							bool consider = false;
+							auto extends = glm::vec3(0);
+							auto shScale = 0.0f;
+							auto shs = context.getSHs(*t);
+							if (shs != nullptr) {//it's a sh object
+								shs->readRef([&](auto const & params, float const & radius) {
+									t->read([&](auto p, auto r, glm::vec3 scale) {
+										shScale = scale.x;
+										extends = glm::vec3(radius);
+										extends = glm::mat3(worldT) * extends ; //divide by the sh local scale to get world extends
+										consider = true;
+									});
+								});
 							}
-						});
-					}
+							/*if (mesh != nullptr) { //it's a mesh object
+								//visit the mesh
+								mesh->modify([&](std::pair<glm::vec3, glm::vec3> & boundingBox, std::vector<float> & vertices,
+									std::vector<float> & normals, std::vector<float> & uvs, std::vector<unsigned int>& indices)
+								{
+									if (vertices.size() > 24) {
+										extends = glm::abs(0.5f * (boundingBox.second - boundingBox.first));
+										extends = glm::mat3(worldT) * extends;
+										//consider = true;
+									}
+								});
+							}*/
+							float radius = glm::length(extends);
+							float distToCenter = glm::length(position - glm::vec3(worldT[3]));
+							dist = glm::max(0.0f, distToCenter - radius);
+
+							/*std::cout << "pos (" << std::to_string(position.x) << ","
+									<< std::to_string(position.y) << ","
+									<< std::to_string(position.z) << ")"
+									<< " extends (" << std::to_string(extends.x) << ","
+													<< std::to_string(extends.y) << ","
+													<< std::to_string(extends.z) << ")" <<
+													"dist " << std::to_string(dist) << std::endl;*/
+							if (dist < rays[y*pixelCountX + x].minDist && consider) { //found new result
+
+								
+
+								//std::cout << std::to_string(dist) << " " << shs << std::endl;
+								if (distToCenter < radius &&  shs != nullptr) { //switch from sphere marching to ray marching with const size
+									glm::mat4 iWorldT = t->calculateWorldInverse(context);
+									glm::vec3 unitLocalDir = glm::normalize(glm::vec3(iWorldT * glm::vec4(position, 1)));
+									SHFunctions::SHEval6(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &shEvals[0]);
+									float f_star = 0.0f;
+									shs->readRef([&](auto & params, auto) {
+										for (int i = 0; i < 36; i++) {
+											f_star += shEvals[i] * params[i];
+										}
+									});
+									dist = constStepSize;
+									rays[y*pixelCountX + x].sh = true;
+									if (glm::abs(f_star) * shScale > distToCenter) {
+										//we are inside the object, stop
+										dist = 0.0f;
+										rays[y*pixelCountX + x].sh = true;
+									}
+								}
+
+								rays[y*pixelCountX + x].resMat = mat;
+								rays[y*pixelCountX + x].resAlbedo = albedo;
+								rays[y*pixelCountX + x].minDist = dist;
+
+							}
+						}
 					});
+					
 				}
 			}
 
@@ -295,12 +333,7 @@ int main(void) {
 					//std::cout << std::to_string(minDist) << "  ";
 					//found a close triangle ?
 					if (minDist < sufficientDist) {
-					
-				/*pd = glm::clamp(rays[y*pixelCountX + x].pd / glm::sqrt(rays[y*pixelCountX + x].Ds), 0.0f, 1.0f);
-						pc = glm::clamp(rays[y*pixelCountX + x].pc / glm::sqrt(rays[y*pixelCountX + x].Cs), 0.0f, 1.0f);
-						pb = glm::clamp(rays[y*pixelCountX + x].pb / glm::sqrt(rays[y*pixelCountX + x].Bs), 0.0f, 1.0f);
-						glm::vec2 uv = (rays[y*pixelCountX + x].uvB * pb + rays[y*pixelCountX + x].uvA * (1.0f - pb)) * (1.0f - pc) + rays[y*pixelCountX + x].uvC * pc;
-						// uv - glm::vec2(glm::ivec2(uv));*/
+			
 						glm::vec2 uv = glm::vec2(0);
 						uv.x = uv.x < 0.0f ? uv.x + 1.0f : uv.x;
 						uv.y = uv.y < 0.0f ? uv.y + 1.0f : uv.y;
@@ -316,6 +349,7 @@ int main(void) {
 					else {
 						color = glm::vec4(0);
 					}
+					color *= rays[y*pixelCountX + x].sh ? glm::vec4(1, 0, 0, 1) : glm::vec4(1);
 					color = color * 255.0f;
 					//write into color buffer
 					bytes[edgeLength * y * 4 + 4 * x + 0] = static_cast<unsigned char>(color.r);// 0xff;

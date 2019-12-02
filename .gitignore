@@ -380,3 +380,4 @@ ASALocalRun/
 build/
 *.vscode
 /TastyRay/cmake-build-debug/
+TastyRay/shaders/

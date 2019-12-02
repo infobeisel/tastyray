@@ -116,17 +116,20 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)../../glew-2.1.0-win32\glew-2.1.0\include;$(ProjectDir)../../bullet3/src;$(ProjectDir)../../lodepng;$(ProjectDir)../../murmurhash.c;$(ProjectDir)../../CatchTestFramework;$(ProjectDir)../../glm-0.9.9-a2;$(ProjectDir)../../glfw\glfw\include;$(ProjectDir)../../sqlite-amalgamation-3220000;$(ProjectDir)../../tinygltf;$(ProjectDir)../../tastyquad\TastyQuad;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalLibraryDirectories>$(ProjectDir)../../glew-2.1.0-win32\glew-2.1.0\lib\Release\x64;$(ProjectDir)../../glfw\glfw\buildvc15_64\src\Release;$(ProjectDir)../../sqlite-dll-win64-x64-3220000;$(ProjectDir)../../tastyquad/x64/LibRelease;$(ProjectDir)../../bullet3/build/lib/Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)../../glew-2.1.0-win32\glew-2.1.0\lib\Release\x64;$(ProjectDir)../../glfw\glfw\buildvc15_64\src\Release;$(ProjectDir)../../sqlite-dll-win64-x64-3220000;$(ProjectDir)../../tastyquad/x64/ReleaseLibBuild;$(ProjectDir)../../bullet3/build/lib/Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>sqlite3.lib;glew32.lib;glfw3.lib;opengl32.lib;TastyQuad.lib;BulletDynamics_Debug.lib;BulletCollision_Debug.lib;LinearMath_Debug.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="SHBasis.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
