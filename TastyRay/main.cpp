@@ -14,9 +14,9 @@
 std::string TastyQuad::RenderFunctions::pathToShaderDeclarations = "./shaders/shaderDeclarations.glsl";
 std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
-int pixelCountMin = 16;
-int pixelCountMax = 128;
-int pixelCountX = 16;
+int pixelCountMin = 32;
+int pixelCountMax = 512;
+int pixelCountX = pixelCountMin;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -45,16 +45,15 @@ void initWindow() {
 	TastyQuad::util::setupGLDebugCallback();
 }
 
-struct RayMarchInstance {
-	float minDist;
+struct RayInstance {
 	bool sh = false;
-	float coveredDist;
-	glm::vec2 uvA, uvB, uvC;
 	TastyQuad::Material * resMat = nullptr;
 	TastyQuad::TexturePowerOf2 * resAlbedo = nullptr;
-	glm::vec3 position, dir;
-	float incircleRadius;
-	glm::vec3 incircleCtr;
+	glm::vec3 position, dir, basisX, basisY;
+	bool hit = false;
+	//sh "buffer"
+	std::vector<float> shEvals;
+	
 };
 
 int main(void) {
@@ -79,10 +78,9 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 20;
-	float const sufficientDist = 0.0000000001f;
-	float const constStepSize = 0.001f;
-	float const stepDist= 0.05f;
+	int const maxMarchSteps = 30;
+	float const sufficientDist = 0.001f;
+	float const constStepSize = 0.033f;
 	auto camT = context.findTransformByName("Camera");
 	
 
@@ -114,13 +112,10 @@ int main(void) {
 	//----------
 
 	//initialize ray buffer
-	std::vector< RayMarchInstance> rays;
+	std::vector< RayInstance> rays;
 	rays.resize(pixelCountX * pixelCountX);
 
-	//sh "buffer"
-	std::vector<float> shEvals;
-	shEvals.resize(36, 0.0f);
-
+	
 
 	double frameTimePoint = glfwGetTime();
 	while (!glfwWindowShouldClose(window))
@@ -163,8 +158,8 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-	///		rot = glm::quat_cast(newRy * newRx);
-	//		pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+			rot = glm::quat_cast(newRy * newRx);
+			pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
 		});
 		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
 			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
@@ -174,7 +169,7 @@ int main(void) {
 
 
 		float delta =   static_cast<float>(glfwGetTime() - frameTimePoint);
-		if (delta > 0.1f && glm::length(movementDelta) < 0.01) {
+		if (delta > 1.0f && glm::length(movementDelta) < 0.01) {
 			if(pixelCountX < pixelCountMax)
 				pixelCountX *= 2;
 			rays.resize(pixelCountX * pixelCountX);
@@ -184,6 +179,8 @@ int main(void) {
 			pixelCountX = pixelCountMin;
 			frameTimePoint = glfwGetTime();
 		}
+
+		
 
 		W = cameraCorrectionTransform->calculateWorldMatrix(context);
 		glm::mat4 iW = cameraCorrectionTransform->calculateWorldInverse(context);
@@ -200,123 +197,118 @@ int main(void) {
 		for (int i = 0; i < pixelCountX; i++) {
 			//std::cout << std::endl;
 			for (int j = 0; j < pixelCountX; j++) {
-				rays[i*pixelCountX + j].minDist = far;
+				
+
 				rays[i*pixelCountX + j].sh = false;
-				rays[i*pixelCountX + j].coveredDist = 0.0f;
+				rays[i*pixelCountX + j].hit = false;
+				rays[i*pixelCountX + j].shEvals.resize(36,0.0f);
+				
 				float viewPlaneWorldWidth = (glm::tan(fov / 2.0f) * near) * 2.0f;
 				glm::vec2 normalizedScreenCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(pixelCountX),
 					static_cast<float>(i) / static_cast<float>(pixelCountX));
+				glm::vec2 normalizedScreenCoordNeighbor = glm::vec2(static_cast<float>(j+1) / static_cast<float>(pixelCountX),
+					static_cast<float>(i+1) / static_cast<float>(pixelCountX));
 				rays[i*pixelCountX + j].position = glm::vec3(-0.5f * viewPlaneWorldWidth * aspectRatio + normalizedScreenCoord.x * viewPlaneWorldWidth * aspectRatio,
 					-0.5f * viewPlaneWorldWidth * aspectRatio + normalizedScreenCoord.y * viewPlaneWorldWidth,
 					near);
+				
 				rays[i*pixelCountX + j].dir = glm::normalize(rays[i*pixelCountX + j].position);
 				rays[i*pixelCountX + j].position = glm::vec3(W * glm::vec4(rays[i*pixelCountX + j].position, 1));
 				rays[i*pixelCountX + j].dir.z = -rays[i*pixelCountX + j].dir.z;
 				rays[i*pixelCountX + j].dir = glm::mat3(W) * rays[i*pixelCountX + j].dir;
+				auto neverColinear = rays[i*pixelCountX + j].dir;
+				neverColinear = glm::vec3(neverColinear.y,neverColinear.z,-neverColinear.x);
+				rays[i*pixelCountX + j].basisX = glm::normalize(glm::cross(neverColinear, rays[i*pixelCountX + j].dir));
+				rays[i*pixelCountX + j].basisY =  glm::normalize(glm::cross( rays[i*pixelCountX + j].dir, rays[i*pixelCountX + j].basisX));
 				//std::cout << std::to_string(rays[i*pixelCountX + j].dir.z) << "  ";
 			}
 		}
-		//march n times
-		for (int iteration = 0; iteration < maxMarchSteps ; iteration++) {
-			#pragma omp for collapse(2)
-			//for each ray
-			for (int y = 0; y < pixelCountX; y++) {
-				for (int x = 0; x < pixelCountX; x++) {
-					//visit the scene
-					context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
-						if (rays[y*pixelCountX + x].coveredDist < far) { //only march rays that are still interesting
 
-							//information per ray, local variables
-							glm::vec3 position = rays[y*pixelCountX + x].position;
-							float dist = far;
-							glm::mat4 worldT = t->calculateWorldMatrix(context);
-
-							bool consider = false;
-							auto extends = glm::vec3(0);
-							auto shScale = 0.0f;
-							auto shs = context.getSHs(*t);
-							if (shs != nullptr) {//it's a sh object
-								shs->readRef([&](auto const & params, float const & radius) {
-									t->read([&](auto p, auto r, glm::vec3 scale) {
-										shScale = scale.x;
-										extends = glm::vec3(radius);
-										extends = glm::mat3(worldT) * extends ; //divide by the sh local scale to get world extends
-										consider = true;
-									});
-								});
-							}
-							/*if (mesh != nullptr) { //it's a mesh object
-								//visit the mesh
-								mesh->modify([&](std::pair<glm::vec3, glm::vec3> & boundingBox, std::vector<float> & vertices,
-									std::vector<float> & normals, std::vector<float> & uvs, std::vector<unsigned int>& indices)
-								{
-									if (vertices.size() > 24) {
-										extends = glm::abs(0.5f * (boundingBox.second - boundingBox.first));
-										extends = glm::mat3(worldT) * extends;
-										//consider = true;
-									}
-								});
-							}*/
-							float radius = glm::length(extends);
-							float distToCenter = glm::length(position - glm::vec3(worldT[3]));
-							dist = glm::max(0.0f, distToCenter - radius);
-
-							/*std::cout << "pos (" << std::to_string(position.x) << ","
-									<< std::to_string(position.y) << ","
-									<< std::to_string(position.z) << ")"
-									<< " extends (" << std::to_string(extends.x) << ","
-													<< std::to_string(extends.y) << ","
-													<< std::to_string(extends.z) << ")" <<
-													"dist " << std::to_string(dist) << std::endl;*/
-							if (dist < rays[y*pixelCountX + x].minDist && consider) { //found new result
-
+		#pragma omp barrier
+		
+		#pragma omp for collapse(2)
+		//for each ray
+		for (int y = 0; y < pixelCountX; y++) {
+			for (int x = 0; x < pixelCountX; x++) {
+				
+				//information per ray, local variables
+				auto dir = rays[y*pixelCountX + x].dir;
+				glm::mat3 rayBasis = glm::mat3 (
+							rays[y*pixelCountX + x].basisX,
+							rays[y*pixelCountX + x].basisY,
+							rays[y*pixelCountX + x].dir);
+				float maxDist = far;
+				rays[y*pixelCountX + x].hit = false;
 								
+				//visit the scene
+				context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
+					glm::mat4 worldT = t->calculateWorldMatrix(context);
+					bool consider = false;
+					auto extends = glm::vec3(0);
+					auto shScale = 0.0f;
+					auto shs = context.getSHs(*t);
+					if (shs != nullptr) {//it's a sh object
+						shs->readRef([&](auto const & params, float const & radius) {
+							t->read([&](auto p, auto r, glm::vec3 scale) {
+								shScale = scale.x;
+								extends = glm::vec3(radius);
+								extends = glm::mat3(worldT) * (extends  / shScale); //divide by the sh local scale to get world extends
+								consider = true;
+							});
+						});
+					}
+					//project sphere into ray basis
+					glm::vec3 position = rays[y*pixelCountX + x].position;
+					auto s = glm::vec3(worldT[3]) - position;
+					s = s * rayBasis;
+					if (s.z - glm::sign(s.z) * extends.x > 0 && consider) { //sphere in front of ray
+						
+						float distToRay = glm::length(glm::vec2(s));
+						if(distToRay < extends.x) { //ray intersects sphere
 
-								//std::cout << std::to_string(dist) << " " << shs << std::endl;
-								if (distToCenter < radius &&  shs != nullptr) { //switch from sphere marching to ray marching with const size
-									glm::mat4 iWorldT = t->calculateWorldInverse(context);
-									glm::vec3 unitLocalDir = glm::normalize(glm::vec3(iWorldT * glm::vec4(position, 1)));
-									SHFunctions::SHEval6(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &shEvals[0]);
-									float f_star = 0.0f;
-									shs->readRef([&](auto & params, auto) {
-										for (int i = 0; i < 36; i++) {
-											f_star += shEvals[i] * params[i];
-										}
-									});
-									dist = constStepSize;
-									rays[y*pixelCountX + x].sh = true;
-									if (glm::abs(f_star) * shScale > distToCenter) {
-										//we are inside the object, stop
-										dist = 0.0f;
-										rays[y*pixelCountX + x].sh = true;
+							float dist = glm::max(0.0f,s.z - extends.x); //start in front of sphere, but at least at 0.0 (already inside the sphere)
+							bool hit = false;
+							//maxDist = dist;
+							rays[y*pixelCountX + x].resMat = mat;
+							rays[y*pixelCountX + x].resAlbedo = albedo;
+							rays[y*pixelCountX + x].hit = true;
+							//march n times
+							//hit = true;
+
+							for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist && !hit; iteration++) {
+								glm::mat4 iWorldT = t->calculateWorldInverse(context);
+								glm::vec3 marchPos = position + dir * dist; 
+								glm::vec3 unitLocalDir = glm::normalize(glm::vec3(iWorldT * glm::vec4(marchPos, 1)));
+								SHFunctions::SHEval6(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &rays[y*pixelCountX + x].shEvals[0]);
+								float f_star = 0.0f;
+								shs->readRef([&](auto & params, auto) {
+									for (int i = 0; i < 36; i++) {
+										f_star += rays[y*pixelCountX + x].shEvals[i] * params[i];
 									}
+								});
+								auto distToCenter = glm::length(marchPos - glm::vec3(worldT[3]));
+								//std::cout << std::to_string(glm::abs(f_star) * shScale) << " VS " << std::to_string(distToCenter) << std::endl;
+								if (glm::abs(f_star) * shScale  > distToCenter) {
+									rays[y*pixelCountX + x].sh = true;
+									rays[y*pixelCountX + x].resMat = mat;
+									rays[y*pixelCountX + x].resAlbedo = albedo;
+									rays[y*pixelCountX + x].hit = true;
+									hit = true;
 								}
-
-								rays[y*pixelCountX + x].resMat = mat;
-								rays[y*pixelCountX + x].resAlbedo = albedo;
-								rays[y*pixelCountX + x].minDist = dist;
-
+								dist += constStepSize * extends.x;
 							}
+							if(hit) {
+								maxDist = dist;
+							}
+							
 						}
-					});
-					
-				}
-			}
-
-			
-			//std::cout << "march phase " << std::to_string(iteration) << std::endl;
-			//for each ray
-			#pragma omp for collapse(2)
-			for (int y = 0; y < pixelCountX ; y++) {
-				for (int x = 0; x < pixelCountX; x++) {
-					//march!
-					rays[y*pixelCountX+x].position += rays[y*pixelCountX + x].dir * rays[y*pixelCountX + x].minDist;
-					rays[y*pixelCountX + x].coveredDist += rays[y*pixelCountX + x].minDist;
-					if(iteration < maxMarchSteps - 1)//if not last iteration, reset for next iteration
-						rays[y*pixelCountX + x].minDist = far;
-				}
+					} 
+				});
 			}
 		}
+
+		#pragma omp barrier
+		
 
 		
 
@@ -330,10 +322,9 @@ int main(void) {
 				//std::cout << std::endl;
 				for (int x = 0; x < pixelCountX; x++) {
 					glm::vec4 color;
-					float minDist = rays[y*pixelCountX + x].minDist;
 					//std::cout << std::to_string(minDist) << "  ";
 					//found a close triangle ?
-					if (minDist < sufficientDist) {
+					if (rays[y*pixelCountX + x].hit) {
 			
 						glm::vec2 uv = glm::vec2(0);
 						uv.x = uv.x < 0.0f ? uv.x + 1.0f : uv.x;
