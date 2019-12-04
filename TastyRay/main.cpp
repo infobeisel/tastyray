@@ -16,6 +16,7 @@ std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
 int pixelCountMin = 32;
 int pixelCountMax = 512;
+
 int pixelCountX = pixelCountMin;
 int defaultFboWidth, defaultFboHeight;
 GLFWwindow* window;
@@ -251,11 +252,8 @@ int main(void) {
 						if(distToRay < extends.x) { //ray intersects sphere
 
 							float dist = glm::max(0.0f,s.z - extends.x); //start in front of sphere, but at least at 0.0 (already inside the sphere)
-							bool hit = false;
-							rays[y*pixelCountX + x].resMat = mat;
-							rays[y*pixelCountX + x].resAlbedo = albedo;
-							rays[y*pixelCountX + x].hit = true;
-							for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist && !hit; iteration++) {
+							rays[y*pixelCountX + x].hit = false;
+							for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist && !rays[y*pixelCountX + x].hit; iteration++) {
 								glm::mat4 iWorldT = t->calculateWorldInverse(context);
 								glm::vec3 marchPos = position + dir * dist; 
 								glm::vec3 unitLocalDir = glm::normalize(glm::vec3(iWorldT * glm::vec4(marchPos, 1)));
@@ -268,16 +266,15 @@ int main(void) {
 								});
 								auto distToCenter = glm::length(marchPos - glm::vec3(worldT[3]));
 								//std::cout << std::to_string(glm::abs(f_star) * shScale) << " VS " << std::to_string(distToCenter) << std::endl;
-								if (glm::abs(f_star) * shScale * 10.0f > distToCenter) {
+								if (glm::abs(f_star) * shScale > distToCenter) {
 									rays[y*pixelCountX + x].sh = true;
 									rays[y*pixelCountX + x].resMat = mat;
 									rays[y*pixelCountX + x].resAlbedo = albedo;
 									rays[y*pixelCountX + x].hit = true;
-									hit = true;
 								}
 								dist += constStepSize * extends.x;
 							}
-							if(hit) {
+							if(rays[y*pixelCountX + x].hit) {
 								maxDist = dist;
 							}
 							
@@ -305,17 +302,15 @@ int main(void) {
 						uv.y = uv.y < 0.0f ? uv.y + 1.0f : uv.y;
 						if (rays[y*pixelCountX + x].resMat != nullptr) {
 							rays[y*pixelCountX + x].resMat->read([&](auto alb, auto e, auto m, auto r) {
-								color = (rays[y*pixelCountX + x].resAlbedo != nullptr ? rays[y*pixelCountX + x].resAlbedo->sample(uv.x, uv.y) : glm::vec4(1.0f)) * alb;
+								color = (rays[y*pixelCountX + x].resAlbedo != nullptr ? rays[y*pixelCountX + x].resAlbedo->sample(uv.x, uv.y) * alb : glm::vec4(1.0f)) * alb;
 							});
 						}
 						else
 							color = glm::vec4(1);
-						color = glm::vec4(1);
 					}
 					else {
 						color = glm::vec4(0);
 					}
-					color *= rays[y*pixelCountX + x].sh ? glm::vec4(1, 0, 0, 1) : glm::vec4(1);
 					color = color * 255.0f;
 					//write into color buffer
 					bytes[edgeLength * y * 4 + 4 * x + 0] = static_cast<unsigned char>(color.r);// 0xff;
