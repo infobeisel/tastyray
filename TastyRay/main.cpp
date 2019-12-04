@@ -187,22 +187,14 @@ int main(void) {
 		forward = glm::vec3(W * glm::vec4(0, 0, -1, 1));
 		TastyQuad::Camera::constructPerspViewProjection(fov, near, far, aspectRatio, glm::vec3(W[3]), glm::vec3(W[3]) + forward, V, P);
 		
-		//std::cout << "cam pos " <<
 		#pragma omp parallel
 		{
-
-		//std::cout << "num threads" <<  omp_get_num_threads() << std::endl;
-		//std::cout << std::endl << "rays:" ;
 		#pragma omp for collapse(2)
 		for (int i = 0; i < pixelCountX; i++) {
-			//std::cout << std::endl;
 			for (int j = 0; j < pixelCountX; j++) {
-				
-
 				rays[i*pixelCountX + j].sh = false;
 				rays[i*pixelCountX + j].hit = false;
 				rays[i*pixelCountX + j].shEvals.resize(36,0.0f);
-				
 				float viewPlaneWorldWidth = (glm::tan(fov / 2.0f) * near) * 2.0f;
 				glm::vec2 normalizedScreenCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(pixelCountX),
 					static_cast<float>(i) / static_cast<float>(pixelCountX));
@@ -211,7 +203,6 @@ int main(void) {
 				rays[i*pixelCountX + j].position = glm::vec3(-0.5f * viewPlaneWorldWidth * aspectRatio + normalizedScreenCoord.x * viewPlaneWorldWidth * aspectRatio,
 					-0.5f * viewPlaneWorldWidth * aspectRatio + normalizedScreenCoord.y * viewPlaneWorldWidth,
 					near);
-				
 				rays[i*pixelCountX + j].dir = glm::normalize(rays[i*pixelCountX + j].position);
 				rays[i*pixelCountX + j].position = glm::vec3(W * glm::vec4(rays[i*pixelCountX + j].position, 1));
 				rays[i*pixelCountX + j].dir.z = -rays[i*pixelCountX + j].dir.z;
@@ -220,18 +211,14 @@ int main(void) {
 				neverColinear = glm::vec3(neverColinear.y,neverColinear.z,-neverColinear.x);
 				rays[i*pixelCountX + j].basisX = glm::normalize(glm::cross(neverColinear, rays[i*pixelCountX + j].dir));
 				rays[i*pixelCountX + j].basisY =  glm::normalize(glm::cross( rays[i*pixelCountX + j].dir, rays[i*pixelCountX + j].basisX));
-				//std::cout << std::to_string(rays[i*pixelCountX + j].dir.z) << "  ";
 			}
 		}
 
 		#pragma omp barrier
 		
 		#pragma omp for collapse(2)
-		//for each ray
 		for (int y = 0; y < pixelCountX; y++) {
 			for (int x = 0; x < pixelCountX; x++) {
-				
-				//information per ray, local variables
 				auto dir = rays[y*pixelCountX + x].dir;
 				glm::mat3 rayBasis = glm::mat3 (
 							rays[y*pixelCountX + x].basisX,
@@ -239,8 +226,6 @@ int main(void) {
 							rays[y*pixelCountX + x].dir);
 				float maxDist = far;
 				rays[y*pixelCountX + x].hit = false;
-								
-				//visit the scene
 				context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
 					glm::mat4 worldT = t->calculateWorldMatrix(context);
 					bool consider = false;
@@ -257,7 +242,6 @@ int main(void) {
 							});
 						});
 					}
-					//project sphere into ray basis
 					glm::vec3 position = rays[y*pixelCountX + x].position;
 					auto s = glm::vec3(worldT[3]) - position;
 					s = s * rayBasis;
@@ -268,13 +252,9 @@ int main(void) {
 
 							float dist = glm::max(0.0f,s.z - extends.x); //start in front of sphere, but at least at 0.0 (already inside the sphere)
 							bool hit = false;
-							//maxDist = dist;
 							rays[y*pixelCountX + x].resMat = mat;
 							rays[y*pixelCountX + x].resAlbedo = albedo;
 							rays[y*pixelCountX + x].hit = true;
-							//march n times
-							//hit = true;
-
 							for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist && !hit; iteration++) {
 								glm::mat4 iWorldT = t->calculateWorldInverse(context);
 								glm::vec3 marchPos = position + dir * dist; 
@@ -288,7 +268,7 @@ int main(void) {
 								});
 								auto distToCenter = glm::length(marchPos - glm::vec3(worldT[3]));
 								//std::cout << std::to_string(glm::abs(f_star) * shScale) << " VS " << std::to_string(distToCenter) << std::endl;
-								if (glm::abs(f_star) * shScale  > distToCenter) {
+								if (glm::abs(f_star) * shScale * 10.0f > distToCenter) {
 									rays[y*pixelCountX + x].sh = true;
 									rays[y*pixelCountX + x].resMat = mat;
 									rays[y*pixelCountX + x].resAlbedo = albedo;
@@ -316,16 +296,10 @@ int main(void) {
 		newTex->modify([&] (unsigned int & edgeLength, std::vector<unsigned char> & bytes) {
 			//for each ray
 			#pragma omp for collapse(2)
-
-			//std::cout << std::endl << "paint! dists:" ;
 			for (int y = 0; y < pixelCountX ; y++) {
-				//std::cout << std::endl;
 				for (int x = 0; x < pixelCountX; x++) {
 					glm::vec4 color;
-					//std::cout << std::to_string(minDist) << "  ";
-					//found a close triangle ?
 					if (rays[y*pixelCountX + x].hit) {
-			
 						glm::vec2 uv = glm::vec2(0);
 						uv.x = uv.x < 0.0f ? uv.x + 1.0f : uv.x;
 						uv.y = uv.y < 0.0f ? uv.y + 1.0f : uv.y;
@@ -348,7 +322,6 @@ int main(void) {
 					bytes[edgeLength * y * 4 + 4 * x + 1] = static_cast<unsigned char>(color.g);
 					bytes[edgeLength * y * 4 + 4 * x + 2] = static_cast<unsigned char>(color.b);
 					bytes[edgeLength * y * 4 + 4 * x + 3] = static_cast<unsigned char>(color.a);
-
 				}
 			}
 		});
