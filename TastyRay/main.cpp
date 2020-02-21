@@ -51,18 +51,34 @@ struct RayInstance {
 	TastyQuad::Material * resMat = nullptr;
 	TastyQuad::TexturePowerOf2 * resAlbedo = nullptr;
 	glm::vec3 position, dir, basisX, basisY;
+	glm::vec4 resColor;
 	bool hit = false;
 	//sh "buffer"
 	std::vector<float> shEvals;
+
 	
 };
+
+
+const float paraboloidFar = 1000.0f;
+const float paraboloidNear = 0.0f;
+
+glm::vec2 paraboloidSample(glm::vec3 direction) {
+	float dz = glm::length(direction);    
+    glm::vec3 localParaboloidPos = glm::normalize(direction);    
+    localParaboloidPos[2] = (dz - paraboloidNear) / (paraboloidFar - paraboloidNear);
+    localParaboloidPos[0] /= (1.0 + localParaboloidPos[2]);
+    localParaboloidPos[1] /= (1.0 + localParaboloidPos[2]);
+    return glm::vec2(localParaboloidPos[0] , localParaboloidPos[1]);
+
+}
 
 int main(void) {
 	initWindow();
 	//load data
 	TastyQuad::GPULessContext context(std::string("./Data/TinyForest/assets.db"));
 	TastyQuad::GLTextureLoader glTexLoader;
-	auto arena = context.load("monkey");
+	auto arena = context.load("shtestscene");
 	//create render texture
 	auto newTex = context.getTextureLoader().createEmptyTexture(pixelCountMax);
 	glTexLoader.loadToGl(*newTex);
@@ -159,8 +175,8 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-			rot = glm::quat_cast(newRy * newRx);
-			pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+	//		rot = glm::quat_cast(newRy * newRx);
+		//	pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
 		});
 		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
 			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
@@ -269,7 +285,11 @@ int main(void) {
 								if (glm::abs(f_star) * shScale > distToCenter) {
 									rays[y*pixelCountX + x].sh = true;
 									rays[y*pixelCountX + x].resMat = mat;
-									rays[y*pixelCountX + x].resAlbedo = albedo;
+									auto uv = paraboloidSample(unitLocalDir);
+									uv = uv * 0.5f + glm::vec2(0.5f);
+									uv = glm::min(glm::vec2(1.0),glm::max(glm::vec2(0.0),uv));
+									//rays[y*pixelCountX + x].resAlbedo = albedo->sample(uv.x,uv.y);
+									rays[y*pixelCountX + x].resColor = albedo->sample(uv.x,uv.y);
 									rays[y*pixelCountX + x].hit = true;
 								}
 								dist += constStepSize * extends.x;
@@ -302,7 +322,9 @@ int main(void) {
 						uv.y = uv.y < 0.0f ? uv.y + 1.0f : uv.y;
 						if (rays[y*pixelCountX + x].resMat != nullptr) {
 							rays[y*pixelCountX + x].resMat->read([&](auto alb, auto e, auto m, auto r) {
-								color = (rays[y*pixelCountX + x].resAlbedo != nullptr ? rays[y*pixelCountX + x].resAlbedo->sample(uv.x, uv.y) * alb : glm::vec4(1.0f)) * alb;
+								//color = (rays[y*pixelCountX + x].resAlbedo != nullptr ? rays[y*pixelCountX + x].resAlbedo->sample(uv.x, uv.y) * alb : glm::vec4(1.0f)) * alb;
+								//if(rays[y*pixelCountX + x].resAlbedo != nullptr  )
+								color  =rays[y*pixelCountX + x].resColor;
 							});
 						}
 						else
