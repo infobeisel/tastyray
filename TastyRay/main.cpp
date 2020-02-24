@@ -175,8 +175,8 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-	//		rot = glm::quat_cast(newRy * newRx);
-		//	pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+			rot = glm::quat_cast(newRy * newRx);
+			pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
 		});
 		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
 			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
@@ -286,10 +286,29 @@ int main(void) {
 									rays[y*pixelCountX + x].sh = true;
 									rays[y*pixelCountX + x].resMat = mat;
 									auto uv = paraboloidSample(unitLocalDir);
-									uv = uv * 0.5f + glm::vec2(0.5f);
+										uv = uv * 0.5f + glm::vec2(0.5f);
 									uv = glm::min(glm::vec2(1.0),glm::max(glm::vec2(0.0),uv));
 									//rays[y*pixelCountX + x].resAlbedo = albedo->sample(uv.x,uv.y);
-									rays[y*pixelCountX + x].resColor = albedo->sample(uv.x,uv.y);
+									if(albedo && normal && mr) { //sh bake textures
+										auto bakedNormal = unitLocalDir.z > 0.0 ? albedo->sample(uv.x,uv.y) : mr->sample(uv.x,uv.y);
+										auto bakedUv4 = normal->sample(uv.x,uv.y);
+										auto bakedUv2 = unitLocalDir.z > 0.0 ? glm::vec2(bakedUv4.x,bakedUv4.y) : glm::vec2(bakedUv4.z,bakedUv4.w);
+										context.visitParent( [&] (auto * p) {
+											auto * parentMat = context.getMaterial(*p);
+
+											context.findCorrespondingTextures([&] (auto * a,auto * n,auto * mr ) {
+												glm::vec4 sampledAlbedo = glm::vec4(1);
+
+												if(a )
+													sampledAlbedo = a->sample(bakedUv2.x,bakedUv2.y);
+												if(parentMat) {
+													parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
+												}
+												rays[y*pixelCountX + x].resColor = sampledAlbedo;		
+											}, *p);
+										}, *t);
+										
+									}
 									rays[y*pixelCountX + x].hit = true;
 								}
 								dist += constStepSize * extends.x;
@@ -320,15 +339,7 @@ int main(void) {
 						glm::vec2 uv = glm::vec2(0);
 						uv.x = uv.x < 0.0f ? uv.x + 1.0f : uv.x;
 						uv.y = uv.y < 0.0f ? uv.y + 1.0f : uv.y;
-						if (rays[y*pixelCountX + x].resMat != nullptr) {
-							rays[y*pixelCountX + x].resMat->read([&](auto alb, auto e, auto m, auto r) {
-								//color = (rays[y*pixelCountX + x].resAlbedo != nullptr ? rays[y*pixelCountX + x].resAlbedo->sample(uv.x, uv.y) * alb : glm::vec4(1.0f)) * alb;
-								//if(rays[y*pixelCountX + x].resAlbedo != nullptr  )
-								color  =rays[y*pixelCountX + x].resColor;
-							});
-						}
-						else
-							color = glm::vec4(1);
+						color  = rays[y*pixelCountX + x].resColor;
 					}
 					else {
 						color = glm::vec4(0);
