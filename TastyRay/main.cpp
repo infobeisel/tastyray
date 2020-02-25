@@ -187,8 +187,8 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-		//	rot = glm::quat_cast(newRy * newRx);
-	//		pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+			rot = glm::quat_cast(newRy * newRx);
+			pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
 		});
 		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
 			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
@@ -245,7 +245,7 @@ int main(void) {
 
 		#pragma omp barrier
 		
-		//for(int bounce = 0; bounce < 2; bounce++) {
+		for(int bounce = 0; bounce < 2; bounce++) {
 			#pragma omp for collapse(2)
 			for (int y = 0; y < pixelCountX; y++) {
 				for (int x = 0; x < pixelCountX; x++) {
@@ -304,6 +304,7 @@ int main(void) {
 										//ray.resAlbedo = albedo->sample(uv.x,uv.y);
 										if(albedo && normal && mr) { //sh bake textures
 											auto bakedNormal = unitLocalDir.z > 0.0 ? albedo->sample(uv.x,uv.y) : mr->sample(uv.x,uv.y);
+											bakedNormal = bakedNormal * 2.0f - glm::vec4(1.0f);
 											auto bakedUv4 = normal->sample(uv.x,uv.y);
 											auto bakedUv2 = unitLocalDir.z > 0.0 ? glm::vec2(bakedUv4.x,bakedUv4.y) : glm::vec2(bakedUv4.z,bakedUv4.w);
 											context.visitParent( [&] (auto * p) {
@@ -316,20 +317,20 @@ int main(void) {
 													if(parentMat) {
 														parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
 													}
-													//ray.resColor += sampledAlbedo;		
+													ray.resColor += sampledAlbedo;		
 
 												}, *p);
 											}, *t);
 
 											//prepare next trace
 											
-											/*ray.dir = glm::reflect(ray.dir,glm::normalize(glm::vec3(worldT * bakedNormal)));
+											ray.dir = glm::reflect(ray.dir,glm::normalize(glm::mat3(worldT) * glm::vec3(bakedNormal)));
 											auto neverColinear = glm::vec3(ray.dir.y,ray.dir.z,-ray.dir.x);
 											ray.basisX = glm::normalize(glm::cross(neverColinear, ray.dir));
-											ray.basisY =  glm::normalize(glm::cross( ray.dir, ray.basisX));*/
+											ray.basisY =  glm::normalize(glm::cross( ray.dir, ray.basisX));
 											
 										}
-										ray.resColor = glm::vec4(1);
+										//ray.resColor = glm::vec4(1);
 										hit = true;
 									}
 									dist += constStepSize * glm::length(extends);
@@ -343,7 +344,7 @@ int main(void) {
 					});
 				}
 			}
-		//}
+		}
 		#pragma omp barrier
 		
 
