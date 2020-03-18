@@ -17,6 +17,7 @@ std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
 int pixelCountMin = 32;
 int pixelCountMax = 512;
+int bounces = 2;
 
 int pixelCountX = pixelCountMin;
 int defaultFboWidth, defaultFboHeight;
@@ -51,7 +52,7 @@ struct RayInstance {
 	TastyQuad::Material * resMat = nullptr;
 	TastyQuad::TexturePowerOf2 * resAlbedo = nullptr;
 	glm::vec3 position, dir, basisX, basisY;
-	glm::vec4 resColor;
+	std::vector<glm::vec4> resColors;
 	//sh "buffer"
 	std::vector<float> shEvals;
 
@@ -187,8 +188,8 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-			rot = glm::quat_cast(newRy * newRx);
-			pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+		//	rot = glm::quat_cast(newRy * newRx);
+		//	pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
 		});
 		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
 			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
@@ -239,7 +240,9 @@ int main(void) {
 				neverColinear = glm::vec3(neverColinear.y,neverColinear.z,-neverColinear.x);
 				ray.basisX = glm::normalize(glm::cross(neverColinear, ray.dir));
 				ray.basisY =  glm::normalize(glm::cross( ray.dir, ray.basisX));
-				ray.resColor = glm::vec4(0.0f);
+				ray.resColors.resize(0);
+				ray.resColors.resize(bounces,glm::vec4(0.0f));
+				
 			}
 		}
 
@@ -317,7 +320,7 @@ int main(void) {
 													if(parentMat) {
 														parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
 													}
-													ray.resColor += sampledAlbedo;		
+													ray.resColors[bounce] = sampledAlbedo;		
 
 												}, *p);
 											}, *t);
@@ -330,7 +333,6 @@ int main(void) {
 											ray.basisY =  glm::normalize(glm::cross( ray.dir, ray.basisX));
 											
 										}
-										//ray.resColor = glm::vec4(1);
 										hit = true;
 									}
 									dist += constStepSize * glm::length(extends);
@@ -356,9 +358,10 @@ int main(void) {
 			#pragma omp for collapse(2)
 			for (int y = 0; y < pixelCountX ; y++) {
 				for (int x = 0; x < pixelCountX; x++) {
-					glm::vec4 color;
+					glm::vec4 color = glm::vec4(0.0f);
 					//if (rays[y*pixelCountX + x].hit) {
-						color  = rays[y*pixelCountX + x].resColor;
+					for(auto c : rays[y*pixelCountX + x].resColors) color += c; 
+
 					//}
 					//else {
 					//	color = glm::vec4(0);
