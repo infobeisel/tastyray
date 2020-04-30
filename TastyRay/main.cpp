@@ -191,8 +191,8 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-			rot = glm::quat_cast(newRy * newRx);
-			pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+		//	rot = glm::quat_cast(newRy * newRx);
+	//		pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
 		});
 		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
 			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
@@ -226,10 +226,7 @@ int main(void) {
 		for (int i = 0; i < pixelCountX; i++) {
 			for (int j = 0; j < pixelCountX; j++) {
 				RayInstance & ray = rays[i*pixelCountX + j];
-				ray.shEvals.resize(36,0.0f);
-				ray.shEvalsDX.resize(36,0.0f);
-				ray.shEvalsDY.resize(36,0.0f);
-				ray.shEvalsDZ.resize(36,0.0f);
+				
 
 				float viewPlaneWorldWidth = (glm::tan(fov / 2.0f) * near) * 2.0f;
 				glm::vec2 normalizedScreenCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(pixelCountX),
@@ -299,17 +296,29 @@ int main(void) {
 								for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist && !hit; iteration++) {
 									glm::vec3 unitLocalDir = glm::normalize(glm::vec3(iWorldT * glm::vec4(marchPos,1)));
 									//SHFunctions::SHEval6(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &ray.shEvals[0]);
+									ray.shEvals.clear();
+									ray.shEvalsDX.clear();
+									ray.shEvalsDY.clear();
+									ray.shEvalsDZ.clear();
+
+									ray.shEvals.resize(36,0.0f);
+									ray.shEvalsDX.resize(36,0.0f);
+									ray.shEvalsDY.resize(36,0.0f);
+									ray.shEvalsDZ.resize(36,0.0f);
+									
+									
 									SHFunctions::SHEval6Derivative(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &ray.shEvals[0], &ray.shEvalsDX[0], &ray.shEvalsDY[0], &ray.shEvalsDZ[0]);
 									float f_star = 0.0f;
 									float f_starDx = 0.0f;
 									float f_starDy = 0.0f;
 									float f_starDz = 0.0f;
+									
 									shs->readRef([&](auto & params, auto) {
 										for (int i = 0; i < 36; i++) {
 											f_star += ray.shEvals[i] * params[i];
-											f_starDx += ray.shEvalsDX[i] * params[i];
-											f_starDy += ray.shEvalsDY[i] * params[i];
-											f_starDz += ray.shEvalsDZ[i] * params[i];
+											f_starDx += glm::abs( ray.shEvalsDX[i]) * params[i];
+											f_starDy += glm::abs( ray.shEvalsDY[i]) * params[i];
+											f_starDz += glm::abs( ray.shEvalsDZ[i]) * params[i];
 										}
 									});
 									auto toOrigin =  glm::vec3(worldT[3]) - marchPos;
@@ -408,7 +417,8 @@ int main(void) {
 												if(parentMat) {
 													parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
 												}
-												ray.resColors[bounce] = glm::vec4(glm::length(testCol));//sampledAlbedo;		
+												float l = glm::length(testCol);
+												ray.resColors[bounce] = glm::vec4(testCol,1);//sampledAlbedo;		
 
 											}, *p);
 										}, *t);

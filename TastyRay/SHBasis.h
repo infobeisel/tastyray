@@ -103,10 +103,12 @@ namespace SHFunctions {
 		float fZ2 = fZ * fZ;
 		float fX2 = fX * fX;
 		float fY2 = fY * fY;
-
-		pSHdX[0] = pSHdX[2] = pSHdX[6] = pSHdX[12] = pSHdX[20] = pSHdX[30] = 0.0f;
-		pSHdY[0] = pSHdY[2] = pSHdY[6] = pSHdY[12] = pSHdY[20] = pSHdY[30] = 0.0f;
-		pSHdZ[0] = pSHdZ[3] = pSHdZ[1] = pSHdZ[4] = pSHdZ[8] = pSHdZ[15] = pSHdZ[9] = pSHdZ[24] = pSHdZ[16] = pSHdZ[35] = pSHdZ[25] = 0.0f; 
+		for(int i = 0; i < 36; i++) {
+			pSHdX[i] = pSHdY[i] = pSHdZ[i] = 0.0f;
+		}
+		//pSHdX[0] = pSHdX[2] = pSHdX[6] = pSHdX[12] = pSHdX[20] = pSHdX[30] = 0.0f;
+		//pSHdY[0] = pSHdY[2] = pSHdY[6] = pSHdY[12] = pSHdY[20] = pSHdY[30] = 0.0f;
+		//pSHdZ[0] = pSHdZ[3] = pSHdZ[1] = pSHdZ[4] = pSHdZ[8] = pSHdZ[15] = pSHdZ[9] = pSHdZ[24] = pSHdZ[16] = pSHdZ[35] = pSHdZ[25] = 0.0f; 
 		pSH[0] = 0.2820947917738781f;
 		pSH[2] = 0.4886025119029199f*fZ;
 		pSHdZ[2] = 0.4886025119029199f;
