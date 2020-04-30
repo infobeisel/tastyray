@@ -13,7 +13,7 @@ include_directories("${PROJECT_SOURCE_DIR}")
 include_directories(${GLFW_INCLUDE_DIRS})
 
 include_directories("${PROJECT_SOURCE_DIR}/../../tastyquad/TastyQuad")
-
+include_directories("${PROJECT_SOURCE_DIR}/../../tinygltf")
 if(NOT TARGET OpenMP::OpenMP_CXX)
 
     find_package(Threads REQUIRED)

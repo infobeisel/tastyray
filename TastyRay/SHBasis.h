@@ -28,7 +28,11 @@ namespace SHFunctions {
 		pSH[2] = 0.4886025119029199f*fZ;
 		pSH[6] = 0.9461746957575601f*fZ2 + -0.31539156525252f;
 		pSH[12] = fZ * (1.865881662950577f*fZ2 + -1.119528997770346f);
+
+		// fz d: (14.809976568*fZ2*fZ - 6.347132815*fZ) 
 		pSH[20] = 1.984313483298443f*fZ*pSH[12] + -1.006230589874905f*pSH[6];
+		
+		 //fz d: (36.839351573*fZ2*fZ2 - 24.559567715*fZ2 + 1.754254837)  
 		pSH[30] = 1.98997487421324f*fZ*pSH[20] + -1.002853072844814f*pSH[12];
 		fC0 = fX;
 		fS0 = fY;
@@ -102,7 +106,7 @@ namespace SHFunctions {
 
 		pSHdX[0] = pSHdX[2] = pSHdX[6] = pSHdX[12] = pSHdX[20] = pSHdX[30] = 0.0f;
 		pSHdY[0] = pSHdY[2] = pSHdY[6] = pSHdY[12] = pSHdY[20] = pSHdY[30] = 0.0f;
-		pSHdZ[0] = pSHdZ[3] = pSHdZ[1] = pSHdZ[4] = pSHdZ[8] = pSHdZ[15] = pSHdZ[9] = pSHdZ[24] = pSHdZ[16] = pSHdZ[35] = pSHdZ[25]; 
+		pSHdZ[0] = pSHdZ[3] = pSHdZ[1] = pSHdZ[4] = pSHdZ[8] = pSHdZ[15] = pSHdZ[9] = pSHdZ[24] = pSHdZ[16] = pSHdZ[35] = pSHdZ[25] = 0.0f; 
 		pSH[0] = 0.2820947917738781f;
 		pSH[2] = 0.4886025119029199f*fZ;
 		pSHdZ[2] = 0.4886025119029199f;
@@ -111,16 +115,9 @@ namespace SHFunctions {
 		pSH[12] = fZ * (1.865881662950577f*fZ2 + -1.119528997770346f);
 		pSHdZ[12] = 3.0f * 1.865881662950577f*fZ2 - 1.119528997770346f;
 		pSH[20] = 1.984313483298443f*fZ*pSH[12] + -1.006230589874905f*pSH[6];
-		pSHdZ[20] = 4.0f * 1.984313483298443f * 1.865881662950577f * fZ2 * fZ 
-			    - 2.0f * 1.984313483298443f * 1.119528997770346f * fZ 
-			    - 2.0f * 1.006230589874905f * 0.9461746957575601f* fZ2;
+		pSHdZ[20] = (14.809976568f*fZ2*fZ - 6.347132815f*fZ) ;
 		pSH[30] = 1.98997487421324f*fZ*pSH[20] + -1.002853072844814f*pSH[12];
-		pSHdZ[30] = 1.98997487421324f* 
-				 (5.0f * 1.984313483298443f * 1.865881662950577f * fZ2 * fZ2
-			    - 3.0f * 1.984313483298443f * 1.119528997770346f * fZ2 
-			    - 3.0f * 1.006230589874905f * 0.9461746957575601f* fZ2 * fZ2
-			    + 1.006230589874905f * 0.31539156525252f) 
-				 + -1.002853072844814f*pSHdZ[12];
+		pSHdZ[30] = (36.839351573f*fZ2*fZ2 - 24.559567715f*fZ2 + 1.754254837f);
 		fC0 = fX;
 		fS0 = fY;
 
@@ -152,7 +149,8 @@ namespace SHFunctions {
 		pSHdY[11] = fTmpB;
 		pSHdZ[11] = fTmpCdZ * fS0;
 		fTmpA = fZ * (-4.683325804901025f*fZ2 + 2.007139630671868f);
-		fTmpAdZ = (-4.683325804901025f*3.0f*fZ2 + 2.007139630671868f);
+		
+		fTmpAdZ = (-14.049977415f*fZ2 + 2.007139630671868f);
 		pSH[21] = fTmpA * fC0;
 		pSHdX[21] = fTmpA;
 		pSHdY[21] = 0.0f;
@@ -162,8 +160,8 @@ namespace SHFunctions {
 		pSHdY[19] = fTmpA;
 		pSHdZ[19] = fTmpAdZ * fC0;
 		fTmpB = 2.03100960115899f*fZ*fTmpA + -0.991031208965115f*fTmpC;
-		fTmpBdZ = 2.03100960115899f*(-4.683325804901025f*4.0f*fZ2*fZ + 2.0f*2.007139630671868f*fZ)
-		+ -0.991031208965115f*fTmpCdZ;
+
+		fTmpBdZ = -38.0475187*fZ2*fZ + 12.682506233 * fZ;
 		pSH[31] = fTmpB * fC0;
 		pSHdX[31] = fTmpB;
 		pSHdY[31] = 0.0f;
@@ -179,12 +177,14 @@ namespace SHFunctions {
 		fTmpA = 0.5462742152960395f;
 		fC1dX = 2.0f * fX;
 		fC1dY = -2.0f * fY;
+		fS1dX = 2.0f * fY;
+		fS1dY = 2.0f * fX;
 		pSH[8] = fTmpA * fC1;
 		pSHdX[8] = fTmpA * fC1dX;
 		pSHdY[8] = fTmpA * fC1dY;
 		pSH[4] = fTmpA * fS1;
-		pSHdX[4] = 0.0f;
-		pSHdY[4] = 0.0f;
+		pSHdX[4] = fTmpA * fS1dX;
+		pSHdY[4] = fTmpA * fS1dY;
 		fTmpB = 1.445305721320277f*fZ;
 		fTmpBdZ = 1.445305721320277f;
 		pSH[14] = fTmpB * fC1;
@@ -192,8 +192,8 @@ namespace SHFunctions {
 		pSHdY[14] = fTmpB * fC1dY;
 		pSHdZ[14] = fTmpBdZ * fC1;
 		pSH[10] = fTmpB * fS1;
-		pSHdX[10] = 0.0f;
-		pSHdY[10] = 0.0f;
+		pSHdX[10] = fTmpB * fS1dX;
+		pSHdY[10] = fTmpB * fS1dY;
 		pSHdZ[10] = fTmpBdZ * fS1;
 		fTmpC = 3.31161143515146f*fZ2 + -0.47308734787878f;
 		fTmpCdZ = 2.0f*3.31161143515146f*fZ;
@@ -202,27 +202,30 @@ namespace SHFunctions {
 		pSHdY[22] = fTmpC * fC1dY;
 		pSHdZ[22] = fTmpBdZ * fC1;
 		pSH[18] = fTmpC * fS1;
-		pSHdX[18] = 0.0f;
-		pSHdY[18] = 0.0f;
+		pSHdX[18] = fTmpC * fS1dX;
+		pSHdY[18] = fTmpC * fS1dY;
 		pSHdZ[18] = fTmpBdZ * fS1;
 		fTmpA = fZ * (7.190305177459987f*fZ2 + -2.396768392486662f);
-		fTmpAdZ = 3.0f*7.190305177459987f*fZ2 + -2.396768392486662f;
+		fTmpAdZ = 21.570915532f*fZ2-2.396768392f;
 		pSH[32] = fTmpA * fC1;
 		pSHdX[32] = fTmpA * fC1dX;
 		pSHdY[32] = fTmpA * fC1dY;
 		pSHdZ[32] = fTmpAdZ * fC1;
 		pSH[28] = fTmpA * fS1;
-		pSHdX[28] = 0.0f;
-		pSHdY[28] = 0.0f;
+		pSHdX[28] = fTmpA * fS1dX;
+		pSHdY[28] = fTmpA * fS1dY;
 		pSHdZ[28] = fTmpAdZ * fS1;
 		fC0 = fX * fC1 - fY * fS1;
 		fS0 = fX * fS1 + fY * fC1;
 
+		
+		
+
 		fTmpA = -0.5900435899266435f;
-		fC0dX = 3.0f * fX2;
-		fC0dY = - 2.0f * fY;
-		fS0dX = 2.0f * fX;
-		fS0dY = -3.0f * fY2;
+		fC0dX = 3.0f * fX2 - fY2 - 2.0f * fY2; 
+		fC0dY = -6.0f * fY * fX;
+		fS0dX = 6.0f * fX * fY;
+		fS0dY = 2.0f * fX2 + fX2 - 3.0f * fY2;
 		pSH[15] = fTmpA * fC0;
 		pSHdX[15] = fTmpA * fC0dX;
 		pSHdY[15] = fTmpA * fC0dY;
@@ -253,10 +256,10 @@ namespace SHFunctions {
 		fS1 = fX * fS0 + fY * fC0;
 
 		fTmpA = 0.6258357354491763f;
-		fC1dX = 4.0f * glm::pow(fX,3.0f) - 2.0f * fX;
-		fC1dY = 4.0f * glm::pow(fY,3.0f) - 2.0f * fY;
-		fS1dX = 6.0f * fX2;
-		fS1dY = -6.0f * fY2;
+		fC1dX =  4.0f * glm::pow(fX,3.0f) - 12.0f * fX * fY2;
+		fC1dY = -12.0f * fX2 * fY + 4.0f * fY2 * fY;
+		fS1dX = 12.0f * fX2 * fY - 4.0f * fY2 * fY;
+		fS1dY = -12.0f * fY2 * fX + 4.0f * fX2 * fX;
 		pSH[24] = fTmpA * fC1;
 		pSHdX[24] = fTmpA * fC1dX;
 		pSHdY[24] = fTmpA * fC1dY;
@@ -276,10 +279,10 @@ namespace SHFunctions {
 		fC0 = fX * fC1 - fY * fS1;
 		fS0 = fX * fS1 + fY * fC1;
 
-		fC0dX = 5.0f * fX2 * fX2 - 2.0f * fX - 6.0f * fX2 * fY; 
-		fC0dY = 4.0f * fY2 * fY - 2.0f * fY - 8.0f * fY2 * fY - 2.0f * fX2;
-		fS0dX = 8.0f * fX2 * fX - 6.0f * fX;
-		fS0dY = -9.0f * fY2  + 5.0f * fY2 * fY2;
+		fC0dX = 5.0f * fX2 * fX2 - 30.0f * fX2 * fY2 + 5.0f * fY2 * fY2 ; 
+		fC0dY = 20.0f * fX * fY2 * fY - 20.0f * fX2 * fX * fY;
+		fS0dX = 20.0f * fX2 * fX * fY - 20.0f * fX * fY2 * fY;
+		fS0dY = 5.0f * fX2 * fX2 - 30.0f * fX2 * fY2 + 5.0f * fY2 * fY2;
 		fTmpC = -0.6563820568401703f;
 		pSH[35] = fTmpC * fC0;
 		pSHdX[35] = fTmpC * fC0dX;

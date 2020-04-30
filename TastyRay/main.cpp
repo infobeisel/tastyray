@@ -17,7 +17,7 @@ std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
 int pixelCountMin = 32;
 int pixelCountMax = 512;
-int bounces = 2;
+int bounces = 1;
 
 int pixelCountX = pixelCountMin;
 int defaultFboWidth, defaultFboHeight;
@@ -55,6 +55,9 @@ struct RayInstance {
 	std::vector<glm::vec4> resColors;
 	//sh "buffer"
 	std::vector<float> shEvals;
+	std::vector<float> shEvalsDX;
+	std::vector<float> shEvalsDY;
+	std::vector<float> shEvalsDZ;
 
 	
 };
@@ -98,7 +101,7 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 30;
+	int const maxMarchSteps = 25;
 	float const sufficientDist = 0.001f;
 	float const constStepSize = 0.033f;
 	auto camT = context.findTransformByName("Camera");
@@ -188,8 +191,8 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_F);
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
-		//	rot = glm::quat_cast(newRy * newRx);
-		//	pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
+			rot = glm::quat_cast(newRy * newRx);
+			pos += glm::vec3(newRy * newRx  * glm::mat4_cast(correction) * cameraPosDelta);
 		});
 		glm::vec2 movementDelta = glm::vec2((float)(xpos - oldCursorPosX), (float)(ypos - oldCursorPosY)) 
 			+ glm::vec2(glm::length(glm::vec3(cameraPosDelta)));
@@ -224,6 +227,10 @@ int main(void) {
 			for (int j = 0; j < pixelCountX; j++) {
 				RayInstance & ray = rays[i*pixelCountX + j];
 				ray.shEvals.resize(36,0.0f);
+				ray.shEvalsDX.resize(36,0.0f);
+				ray.shEvalsDY.resize(36,0.0f);
+				ray.shEvalsDZ.resize(36,0.0f);
+
 				float viewPlaneWorldWidth = (glm::tan(fov / 2.0f) * near) * 2.0f;
 				glm::vec2 normalizedScreenCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(pixelCountX),
 					static_cast<float>(i) / static_cast<float>(pixelCountX));
@@ -248,7 +255,7 @@ int main(void) {
 
 		#pragma omp barrier
 		
-		for(int bounce = 0; bounce < 2; bounce++) {
+		for(int bounce = 0; bounce < bounces; bounce++) {
 			#pragma omp for collapse(2)
 			for (int y = 0; y < pixelCountX; y++) {
 				for (int x = 0; x < pixelCountX; x++) {
@@ -259,7 +266,6 @@ int main(void) {
 								ray.basisY,
 								ray.dir);
 					float maxDist = far;
-					bool hit = false;
 					context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
 						glm::mat4 worldT = t->calculateWorldMatrix(context);
 						glm::mat4 iWorldT = t->calculateWorldInverse(context);
@@ -286,57 +292,138 @@ int main(void) {
 							if(distToRay < glm::length(extends)) { //ray intersects sphere
 
 								float dist = glm::max(0.0f,s.z - glm::length(extends)); //start in front of sphere, but at least at 0.0 (already inside the sphere)
-								hit = false;
+								bool hit = false;
+								glm::vec3 intersectionDir;
+								glm::vec3 marchPos = position + dir * dist; 
+								glm::vec3 testCol;
 								for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist && !hit; iteration++) {
-									glm::vec3 marchPos = position + dir * dist; 
 									glm::vec3 unitLocalDir = glm::normalize(glm::vec3(iWorldT * glm::vec4(marchPos,1)));
-									SHFunctions::SHEval6(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &ray.shEvals[0]);
+									//SHFunctions::SHEval6(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &ray.shEvals[0]);
+									SHFunctions::SHEval6Derivative(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &ray.shEvals[0], &ray.shEvalsDX[0], &ray.shEvalsDY[0], &ray.shEvalsDZ[0]);
 									float f_star = 0.0f;
+									float f_starDx = 0.0f;
+									float f_starDy = 0.0f;
+									float f_starDz = 0.0f;
 									shs->readRef([&](auto & params, auto) {
 										for (int i = 0; i < 36; i++) {
 											f_star += ray.shEvals[i] * params[i];
+											f_starDx += ray.shEvalsDX[i] * params[i];
+											f_starDy += ray.shEvalsDY[i] * params[i];
+											f_starDz += ray.shEvalsDZ[i] * params[i];
 										}
 									});
-									auto distToCenter = glm::length(marchPos - glm::vec3(worldT[3]));
-									//std::cout << std::to_string(glm::abs(f_star) * shScale) << " VS " << std::to_string(distToCenter) << std::endl;
-									if (glm::abs(f_star) * shScale > distToCenter) {
-										ray.resMat = mat;
-										auto uv = paraboloidSample(unitLocalDir);
-											uv = uv * 0.5f + glm::vec2(0.5f);
-										uv = glm::min(glm::vec2(1.0),glm::max(glm::vec2(0.0),uv));
-										//ray.resAlbedo = albedo->sample(uv.x,uv.y);
-										if(albedo && normal && mr) { //sh bake textures
-											auto bakedNormal = unitLocalDir.z > 0.0 ? albedo->sample(uv.x,uv.y) : mr->sample(uv.x,uv.y);
-											bakedNormal = bakedNormal * 2.0f - glm::vec4(1.0f);
-											auto bakedUv4 = normal->sample(uv.x,uv.y);
-											auto bakedUv2 = unitLocalDir.z > 0.0 ? glm::vec2(bakedUv4.x,bakedUv4.y) : glm::vec2(bakedUv4.z,bakedUv4.w);
-											context.visitParent( [&] (auto * p) {
-												auto * parentMat = context.getMaterial(*p);
-												context.findCorrespondingTextures([&] (auto * a,auto * n,auto * mr ) {
-													glm::vec4 sampledAlbedo = glm::vec4(1);
-
-													if(a )
-														sampledAlbedo = a->sample(bakedUv2.x,bakedUv2.y);
-													if(parentMat) {
-														parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
-													}
-													ray.resColors[bounce] = sampledAlbedo;		
-
-												}, *p);
-											}, *t);
-
-											//prepare next trace
-											
-											ray.dir = glm::reflect(ray.dir,glm::normalize(glm::mat3(worldT) * glm::vec3(bakedNormal)));
-											auto neverColinear = glm::vec3(ray.dir.y,ray.dir.z,-ray.dir.x);
-											ray.basisX = glm::normalize(glm::cross(neverColinear, ray.dir));
-											ray.basisY =  glm::normalize(glm::cross( ray.dir, ray.basisX));
-											
-										}
-										hit = true;
+									auto toOrigin =  glm::vec3(worldT[3]) - marchPos;
+									//try newton converge quicker
+									//gradient point into direction of steepest ascent, but not as a tangent on the surface but in
+									//the definition space of the function, need to construct tangent out of it 
+									//
+									auto localGradient = glm::vec3(f_starDx,f_starDy,f_starDz);
+									auto worldGradient = glm::mat3(worldT) * localGradient;
+									auto tangentWorld  = glm::normalize(worldGradient - glm::normalize(toOrigin) * glm::length(worldGradient));
+									auto eliminationNormal = glm::cross(glm::normalize(toOrigin), dir);
+									//tangentWorld = tangentWorld - eliminationNormal * (1.0f -  glm::dot(dir,tangentWorld));
+									
+									
+									auto dirsDotTest = glm::dot(tangentWorld, dir);
+									auto dirToOriginDotTest = glm::dot( glm::normalize(toOrigin), dir); 
+									//first edge case: ray and tangent are almost parallel
+									//wont intersect, in this case say we are free -> no intersection 
+									/*if (1.0f - glm::abs(dirsDotTest) < std::numeric_limits<float>::epsilon()) {
 									}
+									//second edge case: ray points directly to the sh origin, or directly away from it
+									//so we know the solution, it is the sh evaluation itself, or no intersection
+									else if( 1.0f - glm::abs(dirToOriginDotTest)  < std::numeric_limits<float>::epsilon()) {
+										if(dirToOriginDotTest > 0.0f)
+										{
+											//intersection point is eval point
+											hit = true;
+											intersectionDir = unitLocalDir;
+										} else {
+											//no intersection
+											marchPos = marchPos + dir * constStepSize * glm::length(extends); 
+										}
+									} else {
+										//no intersection if rays diverge, else intersection : t (the lower one ) is BIGGER than s 
+										auto orthoDir = glm::cross( glm::normalize(toOrigin), dir);
+										glm::mat3 intersectionTestBasis (
+											glm::cross(orthoDir,glm::normalize(toOrigin)),
+											orthoDir,
+											glm::normalize(toOrigin)
+										);
+										auto t_ = dir * intersectionTestBasis;
+										auto s_ =  tangentWorld * intersectionTestBasis;
+										float t = t_.z / t_.x;
+										float s = s_.z / s_.x;
+										//if(t - s < std::numeric_limits<float>::epsilon()) {
+										//std::cout << "boring  " << std::endl;
+											marchPos = marchPos + dir * constStepSize * glm::length(extends); 
+										//} else
+										if (t > s) { //intersection
+											float x = glm::length(toOrigin) / (t - s);
+											if (x > 0.0f) {
+												auto marched = marchPos +  x * dir;
+												auto intersectionDir = glm::vec3(iWorldT * glm::vec4( marched,1));
+												//if(glm::length(intersectionDir) < 2.0f * glm::length(extends)) {
+													hit = true;
+													intersectionDir = glm::normalize(intersectionDir);	
+												//}
+												marchPos = marched ;
+											}
+										}
+									}*/
+
+									//intersectionDir = unitLocalDir;
+
+
+									if(glm::abs(f_star) * shScale  > glm::distance(marchPos,glm::vec3(worldT[3])))
+									{
+										hit = true;
+										//std::cout << "hit" << std::endl;
+										intersectionDir = unitLocalDir;
+										testCol = localGradient;
+									} else {
+										marchPos = marchPos + dir * constStepSize * glm::length(extends); 
+									}									
 									dist += constStepSize * glm::length(extends);
 								}
+								if(hit) {
+									//std::cout << "hit  " << std::to_string(distToCenter) << std::endl;
+									ray.resMat = mat;
+									auto uv = paraboloidSample(intersectionDir);
+										uv = uv * 0.5f + glm::vec2(0.5f);
+									uv = glm::min(glm::vec2(1.0),glm::max(glm::vec2(0.0),uv));
+									//ray.resAlbedo = albedo->sample(uv.x,uv.y);
+									if(albedo && normal && mr) { //sh bake textures
+										auto bakedNormal = intersectionDir.z > 0.0 ? albedo->sample(uv.x,uv.y) : mr->sample(uv.x,uv.y);
+										bakedNormal = bakedNormal * 2.0f - glm::vec4(1.0f);
+										auto bakedUv4 = normal->sample(uv.x,uv.y);
+										auto bakedUv2 = intersectionDir.z > 0.0 ? glm::vec2(bakedUv4.x,bakedUv4.y) : glm::vec2(bakedUv4.z,bakedUv4.w);
+										context.visitParent( [&] (auto * p) {
+											auto * parentMat = context.getMaterial(*p);
+											context.findCorrespondingTextures([&] (auto * a,auto * n,auto * mr ) {
+												glm::vec4 sampledAlbedo = glm::vec4(1);
+
+												if(a )
+													sampledAlbedo = a->sample(bakedUv2.x,bakedUv2.y);
+												if(parentMat) {
+													parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
+												}
+												ray.resColors[bounce] = glm::vec4(glm::length(testCol));//sampledAlbedo;		
+
+											}, *p);
+										}, *t);
+
+										//prepare next trace
+										
+										ray.dir = glm::reflect(ray.dir,glm::normalize(glm::mat3(worldT) * glm::vec3(bakedNormal)));
+										auto neverColinear = glm::vec3(ray.dir.y,ray.dir.z,-ray.dir.x);
+										ray.basisX = glm::normalize(glm::cross(neverColinear, ray.dir));
+										ray.basisY =  glm::normalize(glm::cross( ray.dir, ray.basisX));
+										
+									}
+									hit = true;
+								}
+
 								if(hit) {
 									maxDist = dist;
 								}
