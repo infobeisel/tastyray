@@ -101,9 +101,9 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 25;
+	int const maxMarchSteps = 100;
 	float const sufficientDist = 0.001f;
-	float const constStepSize = 0.033f;
+	float const constStepSize = 0.01f;
 	auto camT = context.findTransformByName("Camera");
 	
 
@@ -151,6 +151,8 @@ int main(void) {
 	});
 
 	double frameTimePoint = glfwGetTime();
+	bool iPressed, kPressed;
+	int showShIndex = 0;
 	while (!glfwWindowShouldClose(window))
 	{
 
@@ -188,7 +190,20 @@ int main(void) {
 		state = glfwGetKey(window, GLFW_KEY_S);
 		if (state == GLFW_PRESS)
 			cameraPosDelta += glm::vec4(0, 0, speed  * 1.0f, 0);
-		state = glfwGetKey(window, GLFW_KEY_F);
+		state = glfwGetKey(window, GLFW_KEY_I);
+		if (state == GLFW_PRESS && !iPressed) {
+			showShIndex = (showShIndex + 1) % 36;
+			std::cout << std::to_string(showShIndex) << std::endl;
+		}
+		iPressed = state == GLFW_PRESS;
+
+		state = glfwGetKey(window, GLFW_KEY_K);
+		if (state == GLFW_PRESS && !kPressed) {
+			showShIndex = (showShIndex - 1) % 36;
+			std::cout << std::to_string(showShIndex) << std::endl;
+		}
+		kPressed = state == GLFW_PRESS;
+		
 
 		camT->modify([&](glm::vec3 & pos, glm::quat & rot) {
 		//	rot = glm::quat_cast(newRy * newRx);
@@ -314,13 +329,23 @@ int main(void) {
 									float f_starDz = 0.0f;
 									
 									shs->readRef([&](auto & params, auto) {
-										for (int i = 0; i < 36; i++) {
-											f_star += ray.shEvals[i] * params[i];
-											f_starDx += glm::abs( ray.shEvalsDX[i]) * params[i];
-											f_starDy += glm::abs( ray.shEvalsDY[i]) * params[i];
-											f_starDz += glm::abs( ray.shEvalsDZ[i]) * params[i];
-										}
+										//for( int j = 1; j < 6; j++) {
+											
+
+													f_star += glm::abs( ray.shEvals[showShIndex] );//* params[i];
+													//TODO why is it asymmetric when abs() is not used?
+													//cannot use the gradient as sum of abs, will be incorrect
+													//
+													f_starDx +=  ray.shEvalsDX[showShIndex] ;//* params[i];
+													f_starDy +=  ray.shEvalsDY[showShIndex] ;//* params[i];
+													f_starDz +=  ray.shEvalsDZ[showShIndex] ;//* params[i];
+											
+										//}
 									});
+									//f_starDx =  f_starDx * 0.5f + 0.5f;
+									//f_starDy =  f_starDy * 0.5f + 0.5f;
+									//f_starDz =  f_starDz * 0.5f + 0.5f;
+
 									auto toOrigin =  glm::vec3(worldT[3]) - marchPos;
 									//try newton converge quicker
 									//gradient point into direction of steepest ascent, but not as a tangent on the surface but in
@@ -384,7 +409,7 @@ int main(void) {
 									//intersectionDir = unitLocalDir;
 
 
-									if(glm::abs(f_star) * shScale  > glm::distance(marchPos,glm::vec3(worldT[3])))
+									if(glm::abs(f_star) /* shScale*/  > glm::distance(marchPos,glm::vec3(worldT[3])))
 									{
 										hit = true;
 										//std::cout << "hit" << std::endl;
@@ -418,7 +443,7 @@ int main(void) {
 													parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
 												}
 												float l = glm::length(testCol);
-												ray.resColors[bounce] = glm::vec4(testCol,1);//sampledAlbedo;		
+												ray.resColors[bounce] = glm::vec4(l,l,l,1);//sampledAlbedo;		
 
 											}, *p);
 										}, *t);
