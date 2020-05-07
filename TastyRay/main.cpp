@@ -17,8 +17,6 @@ std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 
 int pixelCountMin = 32;
 int pixelCountMax = 512;
-int bounces = 1;
-float tolerance = 1.2f;
 
 int pixelCountX = pixelCountMin;
 int defaultFboWidth, defaultFboHeight;
@@ -102,10 +100,13 @@ int main(void) {
 	float const near = 0.5f;
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
-	int const maxMarchSteps = 100;
+	int const maxMarchSteps = 2;
 	float const constStepSize = 1.0f / (float)maxMarchSteps;
-	float const nextProbe = 0.001f;
+	float const nextProbe = 0.0001f;
 	auto camT = context.findTransformByName("Camera");
+	int bounces = 1;
+	float tolerance = 0.2f;
+
 	
 
 	glm::quat correction = glm::rotate(glm::quat(1, 0, 0, 0), -glm::pi<float>() / 2.0f, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -153,7 +154,7 @@ int main(void) {
 
 	double frameTimePoint = glfwGetTime();
 	bool iPressed, kPressed;
-	int showShIndex = 0;
+	int showShIndex = 20;
 	while (!glfwWindowShouldClose(window))
 	{
 
@@ -281,16 +282,16 @@ int main(void) {
 								ray.basisY,
 								ray.dir);
 					float maxDist = far;
-					context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * t, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
-						glm::mat4 worldT = t->calculateWorldMatrix(context);
-						glm::mat4 iWorldT = t->calculateWorldInverse(context);
+					context.acceptVisitorGivePointers([&](auto * name, auto * scObj, TastyQuad::ITransformation * transform, TastyQuad::Material * mat, auto * albedo, auto * normal, auto * mr, TastyQuad::Mesh * mesh) {
+						glm::mat4 worldT = transform->calculateWorldMatrix(context);
+						glm::mat4 iWorldT = transform->calculateWorldInverse(context);
 						bool consider = false;
 						auto extends = glm::vec3(0);
 						auto shScale = 0.0f;
-						auto shs = context.getSHs(*t);
+						auto shs = context.getSHs(*transform);
 						if (shs != nullptr) {//it's a sh object
 							shs->readRef([&](auto const & params, float const & radius) {
-								t->read([&](auto p, auto r, glm::vec3 scale) {
+								transform->read([&](auto p, auto r, glm::vec3 scale) {
 									shScale = scale.x;
 									extends = glm::vec3(radius);
 									extends = glm::abs(glm::mat3(worldT) * (extends  / shScale)); //divide by the sh local scale to get world extends
@@ -302,96 +303,84 @@ int main(void) {
 						auto s = glm::vec3(worldT[3]) - position;
 						s = s * rayBasis;
 						if (s.z - glm::sign(s.z) * glm::length(extends) > 0 && consider) { //sphere in front of ray
-							
 							float distToRay = glm::length(glm::vec2(s));
-							if(distToRay < glm::length(extends)) { //ray intersects sphere
-
+							if(distToRay < glm::length(extends)) { //ray intersects sphere. 
+//-------------------------------- until now it was ray-boundingsphere-intersectiontest. from now on it is ray-sh-intersectiontest ----------------------------------------------------------------------
 								float dist = glm::max(0.0f,s.z - glm::length(extends)); //start in front of sphere, but at least at 0.0 (already inside the sphere)
-								bool hit = false;
 								glm::vec3 intersectionDir;
 								glm::vec3 marchPos = position + dir * dist; 
-								glm::vec3 testCol;
-								for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist; iteration++) {
-									glm::vec3 localPos = glm::vec3(iWorldT * glm::vec4(marchPos,1));
-									glm::vec3 localPosN = glm::normalize(localPos);
-									auto nextMarchPos = marchPos + dir * nextProbe * glm::length(extends);
-									glm::vec3 localNextPos = glm::vec3(iWorldT * glm::vec4(nextMarchPos,1));
-									glm::vec3 localNextPosN = glm::normalize(localNextPos);
+								glm::vec3 testCol = glm::vec3(1);
+								float toMinimize = std::numeric_limits<float>::max();
+								glm::vec3 localRayDir = glm::mat3(iWorldT) * dir;
+								localRayDir = glm::normalize(localRayDir);
+								glm::vec3 localPos = glm::vec3(iWorldT * glm::vec4(marchPos,1));
+								float t = 0.0f;
+								//find good start position.
+								auto kt = localPos;// + localRayDir * t;
+								auto ktN = glm::normalize(kt);
+								auto f = glm::length(kt);
+								SHFunctions::SHEval6(ktN.x, ktN.y, ktN.z, &ray.shEvals[0]);
+								float f_star = 0.0f;
+								shs->readRef([&](auto & params, auto) {
+									for(int i  = 0; i < 36; i++)
+											f_star +=  ray.shEvals[i] * params[i];
+									//f_star +=  ray.shEvals[showShIndex] ;//* params[i];
+								});
+								auto gt = glm::abs(f_star);
+								auto kt_to_surface = ktN * gt - kt;
+								float conservative = 1.0f / 1.0f;
+								t = 0.77f * conservative * glm::dot(localRayDir, kt_to_surface); // project surface point on ray dir
+								//std::cout << std::to_string(t) << std::endl;
+								toMinimize = f - gt;
 
-									glm::vec3 localRayDir = glm::mat3(iWorldT) * dir;
-									glm::vec3 baseZ = glm::cross(localPosN,localNextPosN);
-									glm::vec3 baseY = glm::cross(localRayDir,baseZ);
-									auto base = glm::mat3(localRayDir,baseY,baseZ);
+								for (int iteration = 0; glm::abs(toMinimize) > tolerance && iteration < maxMarchSteps && dist < maxDist; iteration++) {
 									
-									SHFunctions::SHEval6(localPosN.x, localPosN.y, localPosN.z, &ray.shEvals[0]);
-									float f_star = 0.0f;
+									kt = localPos + localRayDir * t;
+									ktN = glm::normalize(kt);
+									f = glm::length(kt);
+									auto df = glm::dot( kt / f , localRayDir);
+									float te = t + nextProbe;
+									auto kte = localPos + localRayDir * te;
+									auto kteN = glm::normalize(kte);
+									
+									SHFunctions::SHEval6(ktN.x, ktN.y, ktN.z, &ray.shEvals[0]);
+									f_star = 0.0f;
 									shs->readRef([&](auto & params, auto) {
-										f_star +=  ray.shEvals[showShIndex] ;//* params[i];
+										for(int i  = 0; i < 36; i++)
+											f_star +=  ray.shEvals[i] * params[i];
+										//f_star +=  ray.shEvals[showShIndex] ;//* params[i];
 									});
 
-									SHFunctions::SHEval6(localNextPosN.x, localNextPosN.y, localNextPosN.z, &ray.shEvals[0]);
+									SHFunctions::SHEval6(kteN.x, kteN.y, kteN.z, &ray.shEvals[0]);
 									float f_starNext = 0.0f;
 									shs->readRef([&](auto & params, auto) {
-										f_starNext +=  ray.shEvals[showShIndex] ;//* params[i];
+										for(int i  = 0; i < 36; i++)
+											f_starNext +=  ray.shEvals[i] * params[i];
+										//f_starNext +=  ray.shEvals[showShIndex] ;//* params[i];
 
 									});
-									glm::vec3 localOnSurface = f_star * localPosN;
-									glm::vec3 s = localOnSurface * base;//surface point in base
-									glm::vec3 localTangent = f_starNext * localNextPosN - localOnSurface;
-									float diff = f_starNext - f_star;
-									auto stepsize = constStepSize;
-									glm::vec3 surfaceNormal = glm::vec3(0);
-									//edge case: ray points directly to the sh origin, or directly away from it
-									//so we know the solution, it is the sh evaluation itself, or no intersection
-									if(glm::length(localTangent) < std::numeric_limits<float>::epsilon()) {
-										if(glm::dot(localRayDir,localPosN) < 0.0f)
-										{
 
-											//intersection point is eval point
-											intersectionDir = localPosN;
-											testCol = glm::vec3(1,0,0);	
-											hit = true;
-											break;
-										} else {
-											//no intersection
-											stepsize = maxDist;
-											std::cout << "maxdist 1" << std::endl;
-										}
-									} else {
-										localTangent = glm::normalize(localTangent);
-										
-										glm::vec3 t = localTangent * base; //tangent in base
-										//glm::vec3 t = base * localTangent; //tangent in base
-										//glm::vec3 s = base * localOnSurface;//surface point in base
-										surfaceNormal = glm::mat3(worldT) * baseY;
+									gt = glm::abs(f_star);
+									auto gte = glm::abs(f_starNext);
+									auto dg = gte - gt;
 
-										//edge case: ray and tangent are almost parallel
-										//wont intersect, in this case say we are free -> no intersection 
-										if (t.y < std::numeric_limits<float>::epsilon()) {
-											stepsize = maxDist;
-											std::cout << "maxdist 2" << std::endl;
-										} else {
+									toMinimize = f - gt;
+
+									//if(glm::abs(toMinimize) < tolerance) { //found intersection
+
+									//} else {
+										auto newtonDiv = df - dg;
+										//if (glm::abs(newtonDiv) < std::numeric_limits<float>::epsilon()) {
+											//no intersection, TODO opt out this case
+											//t += constStepSize;
 											
-											//line equation is  (t.y/t.x) * ( x - s.x) - s.y = 0
-											float intersection =  s.y * (t.x / t.y) + s.x;
-											stepsize = constStepSize;// glm::max(intersection,constStepSize) ;//intersection;
-											//localPos = localPos + localRayDir * intersection; 
-											//marchPos = worldT * glm::vec4(localPos,1);
-										}
-									}
-
-									if (  glm::abs(f_star) * shScale * tolerance > glm::distance(marchPos,glm::vec3(worldT[3])) ) {
-										hit = true;
-										intersectionDir = localPosN;
-										testCol = glm::vec3(1);//glm::vec3(glm::abs(diff) * 10.0f);
-										break;
-									}
-									
-									marchPos = marchPos + dir * stepsize * glm::length(extends); 
-									
-									dist += constStepSize * glm::length(extends);
+										//} else {
+											t = t - conservative * (toMinimize / newtonDiv);
+										//}
+									//}
+									intersectionDir = ktN;
 								}
-								if(hit) {
+								if(glm::max(toMinimize,0.0f) < tolerance) {
 									//std::cout << "hit  " << std::to_string(distToCenter) << std::endl;
 									ray.resMat = mat;
 									auto uv = paraboloidSample(intersectionDir);
@@ -414,10 +403,10 @@ int main(void) {
 													parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
 												}
 												//float l = glm::length(testCol);
-												ray.resColors[bounce] = glm::vec4(testCol,1);//sampledAlbedo;		
+												ray.resColors[bounce] = sampledAlbedo;//glm::vec4(bakedUv2,0,0);//sampledAlbedo;		
 
 											}, *p);
-										}, *t);
+										}, *transform);
 
 										//prepare next trace
 										
@@ -427,12 +416,9 @@ int main(void) {
 										ray.basisY =  glm::normalize(glm::cross( ray.dir, ray.basisX));
 										
 									}
-									hit = true;
 								}
 
-								if(hit) {
-									maxDist = dist;
-								}
+								
 								
 							}
 						} 
