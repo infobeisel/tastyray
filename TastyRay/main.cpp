@@ -18,6 +18,7 @@ std::string TastyQuad::RenderFunctions::pathToShaderFolder = "./";
 int pixelCountMin = 32;
 int pixelCountMax = 512;
 int bounces = 1;
+float tolerance = 1.2f;
 
 int pixelCountX = pixelCountMin;
 int defaultFboWidth, defaultFboHeight;
@@ -102,8 +103,8 @@ int main(void) {
 	float const far = 1000.0f;
 	float const aspectRatio = 1.0f;
 	int const maxMarchSteps = 100;
-	float const sufficientDist = 0.001f;
-	float const constStepSize = 0.01f;
+	float const constStepSize = 1.0f / (float)maxMarchSteps;
+	float const nextProbe = 0.001f;
 	auto camT = context.findTransformByName("Camera");
 	
 
@@ -272,6 +273,8 @@ int main(void) {
 			for (int y = 0; y < pixelCountX; y++) {
 				for (int x = 0; x < pixelCountX; x++) {
 					RayInstance & ray = rays[y*pixelCountX + x];
+					ray.shEvals.clear();
+					ray.shEvals.resize(36,0.0f);
 					auto dir = ray.dir;
 					glm::mat3 rayBasis = glm::mat3 (
 								ray.basisX,
@@ -308,116 +311,84 @@ int main(void) {
 								glm::vec3 intersectionDir;
 								glm::vec3 marchPos = position + dir * dist; 
 								glm::vec3 testCol;
-								for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist && !hit; iteration++) {
-									glm::vec3 unitLocalDir = glm::normalize(glm::vec3(iWorldT * glm::vec4(marchPos,1)));
-									//SHFunctions::SHEval6(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &ray.shEvals[0]);
-									ray.shEvals.clear();
-									ray.shEvalsDX.clear();
-									ray.shEvalsDY.clear();
-									ray.shEvalsDZ.clear();
+								for (int iteration = 0; iteration < maxMarchSteps && dist < maxDist; iteration++) {
+									glm::vec3 localPos = glm::vec3(iWorldT * glm::vec4(marchPos,1));
+									glm::vec3 localPosN = glm::normalize(localPos);
+									auto nextMarchPos = marchPos + dir * nextProbe * glm::length(extends);
+									glm::vec3 localNextPos = glm::vec3(iWorldT * glm::vec4(nextMarchPos,1));
+									glm::vec3 localNextPosN = glm::normalize(localNextPos);
 
-									ray.shEvals.resize(36,0.0f);
-									ray.shEvalsDX.resize(36,0.0f);
-									ray.shEvalsDY.resize(36,0.0f);
-									ray.shEvalsDZ.resize(36,0.0f);
+									glm::vec3 localRayDir = glm::mat3(iWorldT) * dir;
+									glm::vec3 baseZ = glm::cross(localPosN,localNextPosN);
+									glm::vec3 baseY = glm::cross(localRayDir,baseZ);
+									auto base = glm::mat3(localRayDir,baseY,baseZ);
 									
-									
-									SHFunctions::SHEval6Derivative(unitLocalDir.x, unitLocalDir.y, unitLocalDir.z, &ray.shEvals[0], &ray.shEvalsDX[0], &ray.shEvalsDY[0], &ray.shEvalsDZ[0]);
+									SHFunctions::SHEval6(localPosN.x, localPosN.y, localPosN.z, &ray.shEvals[0]);
 									float f_star = 0.0f;
-									float f_starDx = 0.0f;
-									float f_starDy = 0.0f;
-									float f_starDz = 0.0f;
-									
 									shs->readRef([&](auto & params, auto) {
-										//for( int j = 1; j < 6; j++) {
-											
-
-													f_star += glm::abs( ray.shEvals[showShIndex] );//* params[i];
-													//TODO why is it asymmetric when abs() is not used?
-													//cannot use the gradient as sum of abs, will be incorrect
-													//
-													f_starDx +=  ray.shEvalsDX[showShIndex] ;//* params[i];
-													f_starDy +=  ray.shEvalsDY[showShIndex] ;//* params[i];
-													f_starDz +=  ray.shEvalsDZ[showShIndex] ;//* params[i];
-											
-										//}
+										f_star +=  ray.shEvals[showShIndex] ;//* params[i];
 									});
-									//f_starDx =  f_starDx * 0.5f + 0.5f;
-									//f_starDy =  f_starDy * 0.5f + 0.5f;
-									//f_starDz =  f_starDz * 0.5f + 0.5f;
 
-									auto toOrigin =  glm::vec3(worldT[3]) - marchPos;
-									//try newton converge quicker
-									//gradient point into direction of steepest ascent, but not as a tangent on the surface but in
-									//the definition space of the function, need to construct tangent out of it 
-									//
-									auto localGradient = glm::vec3(f_starDx,f_starDy,f_starDz);
-									auto worldGradient = glm::mat3(worldT) * localGradient;
-									auto tangentWorld  = glm::normalize(worldGradient - glm::normalize(toOrigin) * glm::length(worldGradient));
-									auto eliminationNormal = glm::cross(glm::normalize(toOrigin), dir);
-									//tangentWorld = tangentWorld - eliminationNormal * (1.0f -  glm::dot(dir,tangentWorld));
-									
-									
-									auto dirsDotTest = glm::dot(tangentWorld, dir);
-									auto dirToOriginDotTest = glm::dot( glm::normalize(toOrigin), dir); 
-									//first edge case: ray and tangent are almost parallel
-									//wont intersect, in this case say we are free -> no intersection 
-									/*if (1.0f - glm::abs(dirsDotTest) < std::numeric_limits<float>::epsilon()) {
-									}
-									//second edge case: ray points directly to the sh origin, or directly away from it
+									SHFunctions::SHEval6(localNextPosN.x, localNextPosN.y, localNextPosN.z, &ray.shEvals[0]);
+									float f_starNext = 0.0f;
+									shs->readRef([&](auto & params, auto) {
+										f_starNext +=  ray.shEvals[showShIndex] ;//* params[i];
+
+									});
+									glm::vec3 localOnSurface = f_star * localPosN;
+									glm::vec3 s = localOnSurface * base;//surface point in base
+									glm::vec3 localTangent = f_starNext * localNextPosN - localOnSurface;
+									float diff = f_starNext - f_star;
+									auto stepsize = constStepSize;
+									glm::vec3 surfaceNormal = glm::vec3(0);
+									//edge case: ray points directly to the sh origin, or directly away from it
 									//so we know the solution, it is the sh evaluation itself, or no intersection
-									else if( 1.0f - glm::abs(dirToOriginDotTest)  < std::numeric_limits<float>::epsilon()) {
-										if(dirToOriginDotTest > 0.0f)
+									if(glm::length(localTangent) < std::numeric_limits<float>::epsilon()) {
+										if(glm::dot(localRayDir,localPosN) < 0.0f)
 										{
+
 											//intersection point is eval point
+											intersectionDir = localPosN;
+											testCol = glm::vec3(1,0,0);	
 											hit = true;
-											intersectionDir = unitLocalDir;
+											break;
 										} else {
 											//no intersection
-											marchPos = marchPos + dir * constStepSize * glm::length(extends); 
+											stepsize = maxDist;
+											std::cout << "maxdist 1" << std::endl;
 										}
 									} else {
-										//no intersection if rays diverge, else intersection : t (the lower one ) is BIGGER than s 
-										auto orthoDir = glm::cross( glm::normalize(toOrigin), dir);
-										glm::mat3 intersectionTestBasis (
-											glm::cross(orthoDir,glm::normalize(toOrigin)),
-											orthoDir,
-											glm::normalize(toOrigin)
-										);
-										auto t_ = dir * intersectionTestBasis;
-										auto s_ =  tangentWorld * intersectionTestBasis;
-										float t = t_.z / t_.x;
-										float s = s_.z / s_.x;
-										//if(t - s < std::numeric_limits<float>::epsilon()) {
-										//std::cout << "boring  " << std::endl;
-											marchPos = marchPos + dir * constStepSize * glm::length(extends); 
-										//} else
-										if (t > s) { //intersection
-											float x = glm::length(toOrigin) / (t - s);
-											if (x > 0.0f) {
-												auto marched = marchPos +  x * dir;
-												auto intersectionDir = glm::vec3(iWorldT * glm::vec4( marched,1));
-												//if(glm::length(intersectionDir) < 2.0f * glm::length(extends)) {
-													hit = true;
-													intersectionDir = glm::normalize(intersectionDir);	
-												//}
-												marchPos = marched ;
-											}
+										localTangent = glm::normalize(localTangent);
+										
+										glm::vec3 t = localTangent * base; //tangent in base
+										//glm::vec3 t = base * localTangent; //tangent in base
+										//glm::vec3 s = base * localOnSurface;//surface point in base
+										surfaceNormal = glm::mat3(worldT) * baseY;
+
+										//edge case: ray and tangent are almost parallel
+										//wont intersect, in this case say we are free -> no intersection 
+										if (t.y < std::numeric_limits<float>::epsilon()) {
+											stepsize = maxDist;
+											std::cout << "maxdist 2" << std::endl;
+										} else {
+											
+											//line equation is  (t.y/t.x) * ( x - s.x) - s.y = 0
+											float intersection =  s.y * (t.x / t.y) + s.x;
+											stepsize = constStepSize;// glm::max(intersection,constStepSize) ;//intersection;
+											//localPos = localPos + localRayDir * intersection; 
+											//marchPos = worldT * glm::vec4(localPos,1);
 										}
-									}*/
+									}
 
-									//intersectionDir = unitLocalDir;
-
-
-									if(glm::abs(f_star) /* shScale*/  > glm::distance(marchPos,glm::vec3(worldT[3])))
-									{
+									if (  glm::abs(f_star) * shScale * tolerance > glm::distance(marchPos,glm::vec3(worldT[3])) ) {
 										hit = true;
-										//std::cout << "hit" << std::endl;
-										intersectionDir = unitLocalDir;
-										testCol = localGradient;
-									} else {
-										marchPos = marchPos + dir * constStepSize * glm::length(extends); 
-									}									
+										intersectionDir = localPosN;
+										testCol = glm::vec3(1);//glm::vec3(glm::abs(diff) * 10.0f);
+										break;
+									}
+									
+									marchPos = marchPos + dir * stepsize * glm::length(extends); 
+									
 									dist += constStepSize * glm::length(extends);
 								}
 								if(hit) {
@@ -442,8 +413,8 @@ int main(void) {
 												if(parentMat) {
 													parentMat->read([&] (auto aa,auto,auto,auto) {sampledAlbedo *= aa;});
 												}
-												float l = glm::length(testCol);
-												ray.resColors[bounce] = glm::vec4(l,l,l,1);//sampledAlbedo;		
+												//float l = glm::length(testCol);
+												ray.resColors[bounce] = glm::vec4(testCol,1);//sampledAlbedo;		
 
 											}, *p);
 										}, *t);
