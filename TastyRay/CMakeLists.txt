@@ -8,9 +8,15 @@ find_package(OpenGL REQUIRED)
 #find_package(GLEW REQUIRED)
 include_directories("/usr/include/GL")
 find_package (SQLite3 REQUIRED)
-find_package(GLFW REQUIRED)
+
+#add_subdirectory(~/Projects/glfw-3.2.1/glfw-3.2.1)
+#include_directories(~/Projects/glfw-3.2.1/glfw-3.2.1/include)
+#link_directories("${PROJECT_SOURCE_DIR}/../../glfw-3.3.6/src/")
+include_directories("${PROJECT_SOURCE_DIR}/../../glfw-3.3.6/include/")
+
+#find_package(GLFW REQUIRED)
 include_directories("${PROJECT_SOURCE_DIR}")
-include_directories(${GLFW_INCLUDE_DIRS})
+#include_directories(${GLFW_INCLUDE_DIRS})
 
 include_directories("${PROJECT_SOURCE_DIR}/../../tastyquad/TastyQuad")
 include_directories("${PROJECT_SOURCE_DIR}/../../tinygltf")
@@ -33,17 +39,22 @@ add_executable(TastyRay
 main.cpp
 )
 
-target_link_libraries (TastyRay 
+target_link_libraries (TastyRay
+ 
 			"${PROJECT_SOURCE_DIR}/../../tastyquad/build/libTastyQuad.a"
+			
 						${SQLite3_LIBRARY}
 GL					
 			GLEW
-pthread gomp
-			${GLFW_LIBRARIES}
+pthread gomp 
+#			${GLFW_LIBRARIES}
 
+"${PROJECT_SOURCE_DIR}/../../glfw-3.3.6/src/libglfw3.a"
+${CMAKE_DL_LIBS}
+X11
 )
 
 
-target_compile_options(TastyRay PUBLIC -O3 -fopenmp)
+target_compile_options(TastyRay PUBLIC -O3 -fopenmp -lX11)
 
 
